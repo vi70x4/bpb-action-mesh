@@ -1,0 +1,184 @@
+name: BPB Action Proxy
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      protocol:
+        description: "Proxy protocol"
+        required: true
+        default: "hysteria2"
+        type: choice
+        options:
+          - vless
+          - hysteria2
+
+env:
+  COORDINATOR_URL: ${{ secrets.COORDINATOR_URL }}
+  AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # --- Step 1: Install proxy software ---
+      - name: Install Hysteria2
+        if: github.event.inputs.protocol == 'hysteria2'
+        run: |
+          echo "📦 Installing Hysteria2..."
+          bash <(curl -fsSL https://get.hysteria.network)
+          sudo chmod +x /usr/local/bin/hysteria
+          hysteria version
+
+      - name: Install sing-box (VLESS)
+        if: github.event.inputs.protocol == 'vless'
+        run: |
+          echo "📦 Installing sing-box..."
+          bash <(curl -fsSL https://sing-box.app/deb-install-debian.sh)
+          sing-box version
+
+      # --- Step 2: Generate random credentials ---
+      - name: Generate credentials
+        id: creds
+        run: |
+          echo "uuid=$(uuidgen)" >> $GITHUB_OUTPUT
+          echo "password=$(openssl rand -hex 16)" >> $GITHUB_OUTPUT
+          echo "port=$(shuf -i 20000-65000 -n 1)" >> $GITHUB_OUTPUT
+
+      # --- Step 3: Create Hysteria2 config ---
+      - name: Setup Hysteria2
+        if: github.event.inputs.protocol == 'hysteria2'
+        env:
+          PASSWORD: ${{ steps.creds.outputs.password }}
+          PORT: ${{ steps.creds.outputs.port }}
+        run: |
+          echo "🚀 Setting up Hysteria2..."
+          cat > hysteria.yaml <<EOF
+          listen: :$PORT
+          tls:
+            cert: /dev/null
+            key: /dev/null
+          auth:
+            type: password
+            password: $PASSWORD
+          masquerade:
+            type: proxy
+            proxy:
+              url: https://bing.com
+              rewriteHost: true
+          EOF
+          nohup hysteria server --config hysteria.yaml &
+          echo "🔗 Hysteria2 started on port $PORT"
+
+      # --- Step 4: Create VLESS config ---
+      - name: Setup sing-box (VLESS)
+        if: github.event.inputs.protocol == 'vless'
+        env:
+          UUID: ${{ steps.creds.outputs.uuid }}
+          PORT: ${{ steps.creds.outputs.port }}
+        run: |
+          echo "🚀 Setting up VLESS..."
+          cat > sing-box.json <<EOF
+          {
+            "inbounds": [
+              {
+                "type": "vless",
+                "listen": "::",
+                "listen_port": $PORT,
+                "users": [{ "uuid": "$UUID" }]
+              }
+            ],
+            "outbounds": [{ "type": "direct" }]
+          }
+          EOF
+          nohup sing-box run -c sing-box.json &
+          echo "🔗 VLESS started on port $PORT"
+
+      # --- Step 5: Install cloudflared tunnel ---
+      - name: Setup Cloudflare Tunnel
+        run: |
+          echo "🌐 Setting up Cloudflare Tunnel..."
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb 2>/dev/null || true
+
+          # Start tunnel
+          nohup cloudflared tunnel --no-autoupdate --url http://localhost:${{ steps.creds.outputs.port }} > tunnel.log 2>&1 &
+          sleep 5
+
+          # Extract tunnel URL
+          TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n1 || echo "")
+          echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_ENV
+          echo "🌍 Tunnel URL: $TUNNEL_URL"
+
+      # --- Step 6: Register with coordinator ---
+      - name: Register proxy
+        if: env.COORDINATOR_URL != ''
+        run: |
+          echo "📡 Registering with coordinator..."
+
+          if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ]; then
+            curl -X POST "${{ env.COORDINATOR_URL }}/register" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ env.AUTH_TOKEN }}" \
+              -d "{
+                \"protocol\": \"hysteria2\",
+                \"id\": \"gha-$GITHUB_RUN_ID\",
+                \"host\": \"$(echo $TUNNEL_URL | sed 's|https://||')\",
+                \"port\": 443,
+                \"password\": \"${{ steps.creds.outputs.password }}\",
+                \"sni\": \"$(echo $TUNNEL_URL | sed 's|https://||')\",
+                \"createdAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }" || echo "WARNING: Failed to register - check COORDINATOR_URL"
+          elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
+            curl -X POST "${{ env.COORDINATOR_URL }}/register" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ env.AUTH_TOKEN }}" \
+              -d "{
+                \"protocol\": \"vless\",
+                \"id\": \"gha-$GITHUB_RUN_ID\",
+                \"host\": \"$(echo $TUNNEL_URL | sed 's|https://||')\",
+                \"port\": 443,
+                \"uuid\": \"${{ steps.creds.outputs.uuid }}\",
+                \"sni\": \"$(echo $TUNNEL_URL | sed 's|https://||')\",
+                \"createdAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+              }" || echo "WARNING: Failed to register - check COORDINATOR_URL"
+          fi
+
+      # --- Step 7: Print subscription URL ---
+      - name: Output subscription info
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════════════"
+          echo "🎉 BPB Action Proxy is running!"
+          echo ""
+          echo "🔗 Protocol: ${{ github.event.inputs.protocol || 'hysteria2' }}"
+          echo "🔗 Public URL: ${{ env.TUNNEL_URL }}"
+          echo ""
+          if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ] || [ -z "${{ github.event.inputs.protocol }}" ]; then
+            echo "🔐 Password: ${{ steps.creds.outputs.password }}"
+          elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
+            echo "🔐 UUID: ${{ steps.creds.outputs.uuid }}"
+          fi
+          echo ""
+          if [ -n "${{ env.COORDINATOR_URL }}" ]; then
+            echo "📋 Subscription URL: ${{ env.COORDINATOR_URL }}/sub/all"
+            echo "   (Paste this into Hiddify!)"
+          fi
+          echo ""
+          echo "⏱️  This runner will stay alive for 45 minutes max"
+          echo "═══════════════════════════════════════════════"
+
+      # --- Step 8: Keep alive ---
+      - name: Keep runner alive
+        run: |
+          echo "💤 Keeping alive... (Press Ctrl+C to stop)"
+          for i in $(seq 1 45); do
+            echo "⏱️  Active for $i minutes..."
+            sleep 60
+          done

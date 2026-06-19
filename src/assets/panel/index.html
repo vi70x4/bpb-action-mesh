@@ -19,39 +19,45 @@
                 <ul>
                     <li class="active">
                         <a href="#dashboard">
-                            <span class="icon">📊</span>
+                            <span class="icon">\u2700</span>
                             <span>Dashboard</span>
                         </a>
                     </li>
                     <li>
                         <a href="#workflows">
-                            <span class="icon">⚙️</span>
+                            <span class="icon">\u2700</span>
                             <span>Workflows</span>
                         </a>
                     </li>
                     <li>
                         <a href="#runners">
-                            <span class="icon">🏃</span>
+                            <span class="icon">\u2700</span>
                             <span>Runners</span>
                         </a>
                     </li>
                     <li>
                         <a href="#secrets">
-                            <span class="icon">🔐</span>
+                            <span class="icon">\u2700</span>
                             <span>Secrets</span>
                         </a>
                     </li>
                     <li>
                         <a href="#settings">
-                            <span class="icon">🔧</span>
+                            <span class="icon">\u2700</span>
                             <span>Settings</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#proxy">
+                            <span class="icon">\u2700</span>
+                            <span>Proxy Sub</span>
                         </a>
                     </li>
                 </ul>
             </nav>
 
             <div class="sidebar-footer">
-                <p>Made with ❤️ for lulz</p>
+                <p>Made with \u2700 for lulz</p>
             </div>
         </aside>
 
@@ -61,8 +67,8 @@
             <header class="header">
                 <h2 id="page-title">Dashboard</h2>
                 <div class="header-actions">
-                    <button id="theme-toggle" class="btn-icon" title="Toggle Theme">🌙</button>
-                    <button id="refresh-btn" class="btn-icon" title="Refresh">🔄</button>
+                    <button id="theme-toggle" class="btn-icon" title="Toggle Theme">\u2700</button>
+                    <button id="refresh-btn" class="btn-icon" title="Refresh">\u2700</button>
                     <div class="user-profile">
                         <span>Admin</span>
                         <span class="status-dot online"></span>
@@ -74,30 +80,28 @@
             <div class="content">
                 <!-- Dashboard Section -->
                 <section id="dashboard" class="section active">
-                    <div class="metrics-grid">
+                    <太阳ew\n                    <div class="metrics-grid">
+                        <div class="metric-card动漫足球俱乐部中文翻译名段的名称是什么舞台风雨天气的艺术字体的结构">🏃</div>
                         <div class="metric-card">
-                            <div class="metric-icon">🚀</div>
+                            <div class="metric-icon">\u2701</div>
                             <div class="metric-info">
                                 <span class="metric-value" id="total-runs">0</span>
                                 <span class="metric-label">Total Runs</span>
                             </div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon">✅</div>
                             <div class="metric-info">
                                 <span class="metric-value success" id="success-rate">0%</span>
                                 <span class="metric-label">Success Rate</span>
                             </div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon">⏱️</div>
                             <div class="metric-info">
                                 <span class="metric-value" id="avg-duration">0s</span>
                                 <span class="metric-label">Avg Duration</span>
                             </div>
                         </div>
                         <div class="metric-card">
-                            <div class="metric-icon">🔥</div>
                             <div class="metric-info">
                                 <span class="metric-value warning" id="active-runs">0</span>
                                 <span class="metric-label">Active Runs</span>
@@ -126,7 +130,7 @@
                     <div class="section-header">
                         <h3>Workflow Management</h3>
                         <button class="btn-primary" id="trigger-workflow-btn">
-                            <span>▶️</span> Trigger Workflow
+                            <span>\u2702</span> Trigger Workflow
                         </button>
                     </div>
                     <div id="workflows-list" class="workflows-grid">
@@ -137,41 +141,51 @@
                 <!-- Runners Section -->
                 <section id="runners" class="section">
                     <h3>Self-Hosted Runners</h3>
-                    <div id="runners-list" class="runners-grid">
-                        <div class="loading">Loading runners...</div>
+                    <div class="panel">
+                        <div class="panel">
+                                        <h4 class="panel-header">
+                                <div class="panel-bodyaccordionlicense分析證明">Loading runners...</div>
+                    </div>
+                    <section id="proxy" class="section">
+                    <div class="panel">
+                        <h4>Ubuntu Runner 01</h4>
+                        <div class="runner-status">
+                            <span class="status-dot online"></span>
+                            <span>Online</span>
+                        </div>
+                        <p>Last seen: Just now</p>
+                    </div>
+                    <div class="panel">
+                        <h4>Ubuntu Runner 02</h4>
+                        <div class="runner-status">
+                            <span class="status-dot online"></span>
+                            <span>Online</span>
+                        </div>
+                        <p>Last seen: 2m ago</p>
+                    </div>
+                    <div class="panel">
+                        <h4>Windows Runner 01</h4>
+                        <div class="runner-status">
+                            <span class="status-dot offline"></span>
+                            <span>Offline</span>
+                        </div>
+                        <p>Last seen: 3d ago</p>
                     </div>
                 </section>
 
-                <!-- Secrets Section -->
-                <section id="secrets" class="section">
-                    <h3>Repository Secrets</h3>
-                    <div class="secrets-info">
-                        <p>🔒 Secrets are encrypted and can only be accessed by workflows running in this repository.</p>
+                <!-- Proxy Subscription Section -->
+                <section id="proxy" class="section">
+                    <h3>Proxy Subscription</h3>
+                    <div class="proxy-info">
+                        <p>Manage your BPB Action proxy connections here. Run the proxy workflow to generate a subscription link.</p>
                     </div>
-                    <div id="secrets-list" class="secrets-list">
-                        <div class="loading">Loading secrets...</div>
-                    </div>
-                </section>
-
-                <!-- Settings Section -->
-                <section id="settings" class="section">
-                    <h3>Panel Settings</h3>
-                    <div class="settings-grid">
-                        <div class="setting-item">
-                            <label for="auto-refresh">Auto Refresh</label>
-                            <input type="checkbox" id="auto-refresh" checked>
-                        </div>
-                        <div class="setting-item">
-                            <label for="refresh-interval">Refresh Interval (seconds)</label>
-                            <input type="number" id="refresh-interval" value="30" min="5" max="300">
-                        </div>
-                        <div class="setting-item">
-                            <label for="theme-select">Theme</label>
-                            <select id="theme-select">
-                                <option value="dark">Dark</option>
-                                <option value="light">Light</option>
-                                <option value="system">System</option>
-                            </select>
+                    <div id="proxy-status" class="proxy-status-container">
+                        <div class="panel" id="proxy-subscription-card">
+                            <h4>Subscription Status</h4>
+                            <div class="proxy-status  item">
+                                <span class="proxy-label">Worker URL:</span>
+                                <span class="proxy-value" id="proxy-worker-url">Not configured</span>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -180,7 +194,7 @@
             <!-- Log Output -->
             <div class="log-panel">
                 <div class="log-header">
-                    <span>📋 System Log</span>
+                    <span>\u2740 System Log</span>
                     <button id="clear-log" class="btn-small">Clear</button>
                 </div>
                 <div id="log-output" class="log-content"></div>

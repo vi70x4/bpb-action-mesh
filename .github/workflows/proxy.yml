@@ -29,10 +29,14 @@ jobs:
 
       # --- Step 1: Install proxy software ---
       - name: Install Hysteria2
-        if: github.event.inputs.protocol == 'hysteria2'
+        if: github.event.inputs.protocol == 'hysteria2' || github.event.inputs.protocol == ''
         run: |
           echo "📦 Installing Hysteria2..."
-          bash <(curl -fsSL https://get.hysteria.network)
+          # Download directly from GitHub releases (install script is down)
+          HY2_URL=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest | grep "browser_download_url.*linux-amd64" | head -1 | cut -d\" -f4)
+          wget -q "$HY2_URL" -O /tmp/hysteria.tar.gz
+          tar -xzf /tmp/hysteria.tar.gz -C /tmp/ hysteria || tar -xzf /tmp/hysteria.tar.gz -C /tmp/
+          sudo mv /tmp/hysteria /usr/local/bin/hysteria
           sudo chmod +x /usr/local/bin/hysteria
           hysteria version
 
@@ -40,7 +44,12 @@ jobs:
         if: github.event.inputs.protocol == 'vless'
         run: |
           echo "📦 Installing sing-box..."
-          bash <(curl -fsSL https://sing-box.app/deb-install-debian.sh)
+          # Try direct download if script fails
+          SINGBOX_URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep "browser_download_url.*linux-amd64" | head -1 | cut -d\" -f4)
+          wget -q "$SINGBOX_URL" -O /tmp/sing-box.tar.gz
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp/
+          sudo mv /tmp/sing-box /usr/local/bin/sing-box || sudo mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
+          sudo chmod +x /usr/local/bin/sing-box
           sing-box version
 
       # --- Step 2: Generate random credentials ---

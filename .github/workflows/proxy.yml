@@ -17,6 +17,7 @@ on:
 env:
   COORDINATOR_URL: ${{ secrets.COORDINATOR_URL }}
   AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
+  NETWORK_ID: ${{ secrets.NETWORK_ID || 'bpb-default' }}
 
 jobs:
   proxy:
@@ -149,6 +150,25 @@ jobs:
           TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n1 || echo "")
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_ENV
           echo "🌍 Tunnel URL: $TUNNEL_URL"
+
+      # --- Step 5.5: Setup DHT Mesh Node (P0) ---
+      - name: Setup DHT Mesh Node
+        if: env.COORDINATOR_URL != '' || env.NETWORK_ID != ''
+        env:
+          NETWORK_ID: ${{ secrets.NETWORK_ID || 'bpb-default' }}
+          PROXY_PROTOCOL: ${{ github.event.inputs.protocol || 'hysteria2' }}
+          PROXY_HOST: ${{ env.TUNNEL_URL }}
+          VLESS_UUID: ${{ steps.creds.outputs.uuid }}
+          HY2_PASSWORD: ${{ steps.creds.outputs.password }}
+          PROXY_PORT: 443
+        run: |
+          echo "🌐 Setting up DHT mesh node..."
+          cd $GITHUB_WORKSPACE/node
+          npm install --production 2>/dev/null
+          npx tsc 2>/dev/null || true
+          # Run in background
+          nohup node dist/index.js &
+          echo "🌀 DHT mesh node started (background)"
 
       # --- Step 6: Register with coordinator ---
       - name: Register proxy

@@ -1,0 +1,40 @@
+{
+  "name": "bpb-action-panel",
+  "version": "1.0.0",
+  "description": "A GitHub Actions-based panel inspired by BPB-Worker-Panel for educational and lulz purposes",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc && npm run build:panel",
+    "build:panel": "node scripts/build-panel.js",
+    "start": "node dist/index.js",
+    "test": "echo 'No tests specified yet' && exit 0",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write 'src/**/*.ts'"
+  },
+  "keywords": [
+    "github-actions",
+    "panel",
+    "devops",
+    "ci-cd",
+    "workflow",
+    "dashboard"
+  ],
+  "author": "GitHub Actions Enthusiast",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.5.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.1.6",
+    "tsx": "^3.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

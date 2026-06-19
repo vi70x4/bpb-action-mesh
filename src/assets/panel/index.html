@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BPB Action Panel</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>BPB Action</h1>
+                <span class="version">v1.0.0</span>
+            </div>
+
+            <nav class="sidebar-nav">
+                <ul>
+                    <li class="active">
+                        <a href="#dashboard">
+                            <span class="icon">📊</span>
+                            <span>Dashboard</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#workflows">
+                            <span class="icon">⚙️</span>
+                            <span>Workflows</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#runners">
+                            <span class="icon">🏃</span>
+                            <span>Runners</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#secrets">
+                            <span class="icon">🔐</span>
+                            <span>Secrets</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#settings">
+                            <span class="icon">🔧</span>
+                            <span>Settings</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-footer">
+                <p>Made with ❤️ for lulz</p>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <h2 id="page-title">Dashboard</h2>
+                <div class="header-actions">
+                    <button id="theme-toggle" class="btn-icon" title="Toggle Theme">🌙</button>
+                    <button id="refresh-btn" class="btn-icon" title="Refresh">🔄</button>
+                    <div class="user-profile">
+                        <span>Admin</span>
+                        <span class="status-dot online"></span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content">
+                <!-- Dashboard Section -->
+                <section id="dashboard" class="section active">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon">🚀</div>
+                            <div class="metric-info">
+                                <span class="metric-value" id="total-runs">0</span>
+                                <span class="metric-label">Total Runs</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">✅</div>
+                            <div class="metric-info">
+                                <span class="metric-value success" id="success-rate">0%</span>
+                                <span class="metric-label">Success Rate</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">⏱️</div>
+                            <div class="metric-info">
+                                <span class="metric-value" id="avg-duration">0s</span>
+                                <span class="metric-label">Avg Duration</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🔥</div>
+                            <div class="metric-info">
+                                <span class="metric-value warning" id="active-runs">0</span>
+                                <span class="metric-label">Active Runs</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panels-row">
+                        <div class="panel">
+                            <h3>Recent Workflow Runs</h3>
+                            <div id="workflow-runs" class="runs-list">
+                                <div class="loading">Loading...</div>
+                            </div>
+                        </div>
+                        <div class="panel">
+                            <h3>System Status</h3>
+                            <div id="system-status" class="status-grid">
+                                <div class="loading">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Workflows Section -->
+                <section id="workflows" class="section">
+                    <div class="section-header">
+                        <h3>Workflow Management</h3>
+                        <button class="btn-primary" id="trigger-workflow-btn">
+                            <span>▶️</span> Trigger Workflow
+                        </button>
+                    </div>
+                    <div id="workflows-list" class="workflows-grid">
+                        <div class="loading">Loading workflows...</div>
+                    </div>
+                </section>
+
+                <!-- Runners Section -->
+                <section id="runners" class="section">
+                    <h3>Self-Hosted Runners</h3>
+                    <div id="runners-list" class="runners-grid">
+                        <div class="loading">Loading runners...</div>
+                    </div>
+                </section>
+
+                <!-- Secrets Section -->
+                <section id="secrets" class="section">
+                    <h3>Repository Secrets</h3>
+                    <div class="secrets-info">
+                        <p>🔒 Secrets are encrypted and can only be accessed by workflows running in this repository.</p>
+                    </div>
+                    <div id="secrets-list" class="secrets-list">
+                        <div class="loading">Loading secrets...</div>
+                    </div>
+                </section>
+
+                <!-- Settings Section -->
+                <section id="settings" class="section">
+                    <h3>Panel Settings</h3>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <label for="auto-refresh">Auto Refresh</label>
+                            <input type="checkbox" id="auto-refresh" checked>
+                        </div>
+                        <div class="setting-item">
+                            <label for="refresh-interval">Refresh Interval (seconds)</label>
+                            <input type="number" id="refresh-interval" value="30" min="5" max="300">
+                        </div>
+                        <div class="setting-item">
+                            <label for="theme-select">Theme</label>
+                            <select id="theme-select">
+                                <option value="dark">Dark</option>
+                                <option value="light">Light</option>
+                                <option value="system">System</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Log Output -->
+            <div class="log-panel">
+                <div class="log-header">
+                    <span>📋 System Log</span>
+                    <button id="clear-log" class="btn-small">Clear</button>
+                </div>
+                <div id="log-output" class="log-content"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,40 +1,58 @@
 {
-  "name": "bpb-action-panel",
-  "version": "1.0.0",
-  "description": "A GitHub Actions-based panel inspired by BPB-Worker-Panel for educational and lulz purposes",
-  "main": "dist/index.js",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc && npm run build:panel",
-    "build:panel": "node scripts/build-panel.js",
-    "start": "node dist/index.js",
-    "test": "echo 'No tests specified yet' && exit 0",
-    "lint": "eslint src/**/*.ts",
-    "format": "prettier --write 'src/**/*.ts'"
-  },
-  "keywords": [
-    "github-actions",
-    "panel",
-    "devops",
-    "ci-cd",
-    "workflow",
-    "dashboard"
-  ],
-  "author": "GitHub Actions Enthusiast",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.17",
-    "@types/node": "^20.5.0",
-    "prettier": "^3.0.0",
-    "typescript": "^5.1.6",
-    "tsx": "^3.12.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+	"name": "bpb-action-panel",
+	"version": "1.0.0",
+	"description": "A GitHub Actions-based panel inspired by BPB-Worker-Panel for educational and lulz purposes",
+	"main": "dist/index.js",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"build": "tsc && npm run build:panel",
+		"build:panel": "node scripts/build-panel.js",
+		"start": "node dist/index.js",
+		"test": "echo 'No tests specified yet' && exit 0",
+		"test:swarm": "npx tsx tools/harness/index.ts smoke",
+		"test:swarm:stress": "npx tsx tools/harness/index.ts stress",
+		"agent": "npx tsx tools/logging/swarm-logger.ts",
+		"agent:dht": "cd tools/sim && npx tsx dht-cluster-sim.ts",
+		"agent:ghost": "cd tools/monitor && npx tsx ghost-detector.ts",
+		"agent:bootstrap": "cd tools/bootstrap && npx tsx validate-bootstrap.ts",
+		"agent:keyspace": "cd tools/debug && npx tsx keyspace-inspector.ts",
+		"agent:tunnel-mock": "cd tools/mock && npx tsx tunnel-emitter.ts --provider trycloudflare",
+		"agent:spec-check": "cd tools/spec && npx tsx validate-spec.ts",
+		"lint": "biome lint .",
+		"format": "biome format . --write",
+		"check": "biome check .",
+		"prepare": "husky"
+	},
+	"keywords": [
+		"github-actions",
+		"panel",
+		"devops",
+		"ci-cd",
+		"workflow",
+		"dashboard"
+	],
+	"author": "GitHub Actions Enthusiast",
+	"license": "MIT",
+	"dependencies": {
+		"express": "^4.18.2",
+		"socket.io": "^4.7.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
+		"@types/express": "^4.17.17",
+		"@types/node": "^20.5.0",
+		"husky": "^9.1.7",
+		"lint-staged": "^17.0.8",
+		"tsx": "^3.12.0",
+		"typescript": "^5.1.6"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"lint-staged": {
+		"*.{ts,tsx,js,jsx}": [
+			"biome check --write --no-errors-on-unmatched"
+		]
+	}
 }

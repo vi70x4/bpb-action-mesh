@@ -91,6 +91,9 @@ interface ProxyConfig {
   uuid?: string;
   tls?: boolean;
   sni?: string;
+  type?: "tcp" | "ws";
+  path?: string;
+  security?: "none" | "tls";
   createdAt: string;
   expiresAt: string;
 }
@@ -99,12 +102,14 @@ interface ProxyConfig {
 
 function generateVlessURL(config: ProxyConfig): string {
   const params = new URLSearchParams({
-    security: "tls",
+    security: config.security || "none",
     encryption: "none",
     headerType: "none",
-    type: "ws",
-    path: "/ws",
+    type: config.type || "tcp",
   });
+  if (config.type === "ws") {
+    params.set("path", config.path || "/ws");
+  }
   if (config.sni) params.set("sni", config.sni);
   return `vless://${config.uuid}@${config.host}:${config.port}?${params.toString()}#BPB-Action-${config.id}`;
 }

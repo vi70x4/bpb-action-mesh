@@ -6,11 +6,19 @@ on:
       protocol:
         description: "Proxy protocol"
         required: true
-        default: "hysteria2"
+        default: "vless"
         type: choice
         options:
           - vless
           - hysteria2
+      tunnel:
+        description: "Tunnel provider (Bore is raw TCP, TryCloudflare is HTTP/WS)"
+        required: true
+        default: "bore"
+        type: choice
+        options:
+          - bore
+          - trycloudflare
 
 env:
   COORDINATOR_URL: ${{ secrets.COORDINATOR_URL }}
@@ -26,9 +34,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- Step 1: Install proxy software ---
+      # --- Step 1: Install Hysteria2 ---
       - name: Install Hysteria2
-        if: github.event.inputs.protocol == 'hysteria2' || github.event.inputs.protocol == ''
+        if: github.event.inputs.protocol == 'hysteria2'
         run: |
           echo "📦 Installing Hysteria2..."
           HY2_URL=$(curl -sL https://api.github.com/repos/apernet/hysteria/releases/latest \
@@ -41,6 +49,7 @@ jobs:
           wget -q "$HY2_URL" -O /tmp/hysteria && chmod +x /tmp/hysteria && sudo mv /tmp/hysteria /usr/local/bin/hysteria
           hysteria version || echo "⚠️ Hysteria2 version check failed but binary may still work"
 
+      # --- Step 1.2: Install sing-box (VLESS) ---
       - name: Install sing-box (VLESS)
         if: github.event.inputs.protocol == 'vless'
         run: |
@@ -68,8 +77,6 @@ jobs:
           echo "port=$(shuf -i 20000-65000 -n 1)" >> $GITHUB_OUTPUT
 
       # --- Step 3: Create Hysteria2 config ---
-      # Hysteria2 generates self-signed certs automatically when no TLS is configured.
-      # We use a self-signed cert pair so the server can start.
       - name: Setup Hysteria2
         if: github.event.inputs.protocol == 'hysteria2'
         env:
@@ -77,7 +84,6 @@ jobs:
           PORT: ${{ steps.creds.outputs.port }}
         run: |
           echo "🚀 Setting up Hysteria2..."
-          # Generate self-signed TLS cert (required by Hysteria2 server)
           openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
             -nodes -keyout /tmp/hy2-key.pem -out /tmp/hy2-cert.pem \
             -days 1 -subj "/CN=bpb-action"
@@ -106,43 +112,99 @@ jobs:
           fi
 
       # --- Step 4: Create VLESS config ---
-      # Uses WebSocket transport so it works through Cloudflare HTTP tunnel.
-      # Path: /ws — arbitrary, just needs to match client config.
+      # For TryCloudflare, we use WebSocket transport.
+      # For Bore, we use raw, fast TCP transport.
       - name: Setup sing-box (VLESS)
         if: github.event.inputs.protocol == 'vless'
         env:
           UUID: ${{ steps.creds.outputs.uuid }}
           PORT: ${{ steps.creds.outputs.port }}
         run: |
-          echo "🚀 Setting up VLESS + WebSocket..."
-          cat > /tmp/sing-box.json <<JSON
-          {
-            "inbounds": [
-              {
-                "type": "vless",
-                "listen": "::",
-                "listen_port": $PORT,
-                "users": [{ "uuid": "$UUID" }],
-                "transport": {
-                  "type": "ws",
-                  "path": "/ws"
+          if [ "${{ github.event.inputs.tunnel }}" == "trycloudflare" ]; then
+            echo "🚀 Setting up VLESS + WebSocket (for Cloudflare)..."
+            cat > /tmp/sing-box.json <<JSON
+            {
+              "inbounds": [
+                {
+                  "type": "vless",
+                  "listen": "::",
+                  "listen_port": $PORT,
+                  "users": [{ "uuid": "$UUID" }],
+                  "transport": {
+                    "type": "ws",
+                    "path": "/ws"
+                  }
                 }
-              }
-            ],
-            "outbounds": [{ "type": "direct" }]
-          }
-          JSON
+              ],
+              "outbounds": [{ "type": "direct" }]
+            }
+            JSON
+          else
+            echo "🚀 Setting up VLESS over raw TCP (for Bore)..."
+            cat > /tmp/sing-box.json <<JSON
+            {
+              "inbounds": [
+                {
+                  "type": "vless",
+                  "listen": "::",
+                  "listen_port": $PORT,
+                  "users": [{ "uuid": "$UUID" }]
+                }
+              ],
+              "outbounds": [{ "type": "direct" }]
+            }
+            JSON
+          fi
+
           nohup sing-box run -c /tmp/sing-box.json > /tmp/singbox.log 2>&1 &
           sleep 2
           if ! grep -q 'FATAL\|error' /tmp/singbox.log 2>/dev/null; then
-            echo "🔗 VLESS+WS started on port $PORT"
+            echo "🔗 VLESS started on port $PORT"
           else
             echo "⚠️ VLESS failed to start"
             cat /tmp/singbox.log
           fi
 
-      # --- Step 5: Install cloudflared tunnel ---
+      # --- Step 5a: Setup Bore Tunnel (Raw TCP, No Cloudflare CDN) ---
+      - name: Setup Bore Tunnel
+        if: github.event.inputs.tunnel == 'bore'
+        run: |
+          echo "🌐 Setting up Bore Tunnel (TCP)..."
+          BORE_URL=$(curl -sL https://api.github.com/repos/ekzhang/bore/releases/latest \
+            | grep -o '"browser_download_url": *"[^"]*x86_64-unknown-linux-musl\.tar\.gz"' \
+            | head -1 | sed 's/.*: *"\(.*\)"$/\1/')
+          if [ -z "$BORE_URL" ]; then
+            BORE_URL="https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-unknown-linux-musl.tar.gz"
+          fi
+          echo "Downloading Bore from: $BORE_URL"
+          wget -q "$BORE_URL" -O /tmp/bore.tar.gz
+          tar -xzf /tmp/bore.tar.gz -C /tmp
+          sudo mv /tmp/bore /usr/local/bin/bore
+          sudo chmod +x /usr/local/bin/bore
+          bore --version
+
+          # Start Bore local port forwarder pointing to sing-box/hysteria port
+          nohup bore local ${{ steps.creds.outputs.port }} --to bore.pub > /tmp/tunnel.log 2>&1 &
+          sleep 6
+
+          # Parse assigned port from logs
+          # Outputs format: "local port forwarding at bore.pub:xxxxx" or "listening at bore.pub:xxxxx"
+          BORE_PORT=$(grep -oE 'listening at bore.pub:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || \
+                      grep -oE 'bore.pub:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || echo "")
+
+          if [ -z "$BORE_PORT" ]; then
+            echo "⚠️ Failed to get Bore port. Log:"
+            cat /tmp/tunnel.log
+            exit 1
+          fi
+
+          echo "TUNNEL_HOST=bore.pub" >> $GITHUB_ENV
+          echo "TUNNEL_PORT=$BORE_PORT" >> $GITHUB_ENV
+          echo "🌍 Tunnel URL: bore.pub:$BORE_PORT"
+
+      # --- Step 5b: Setup Cloudflare Tunnel (TryCloudflare HTTP) ---
       - name: Setup Cloudflare Tunnel
+        if: github.event.inputs.tunnel == 'trycloudflare'
         run: |
           echo "🌐 Setting up Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -154,12 +216,15 @@ jobs:
 
           # Extract tunnel URL
           TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -n1 || echo "")
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
+          echo "TUNNEL_HOST=$HOST" >> $GITHUB_ENV
+          echo "TUNNEL_PORT=443" >> $GITHUB_ENV
           echo "🌍 Tunnel URL: $TUNNEL_URL"
 
           if [ -z "$TUNNEL_URL" ]; then
             echo "⚠️ Failed to get tunnel URL. Tunnel log:"
             tail -20 /tmp/tunnel.log
+            exit 1
           fi
 
       # --- Step 5.7: Calculate expiry time ---
@@ -175,18 +240,28 @@ jobs:
         run: |
           echo "📡 Registering with coordinator..."
           PROXY_ID="gha-$GITHUB_RUN_ID"
-          HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
           CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Determine VLESS transport params based on selected tunnel
+          if [ "${{ github.event.inputs.tunnel }}" == "trycloudflare" ]; then
+            TYPE_PARAM="ws"
+            PATH_PARAM="/ws"
+            SECURITY_PARAM="tls"
+          else
+            TYPE_PARAM="tcp"
+            PATH_PARAM=""
+            SECURITY_PARAM="none"
+          fi
 
           if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ]; then
             cat > /tmp/register.json <<EOF
           {
             "protocol": "hysteria2",
             "id": "${PROXY_ID}",
-            "host": "${HOST}",
-            "port": 443,
+            "host": "${TUNNEL_HOST}",
+            "port": ${TUNNEL_PORT},
             "password": "${{ steps.creds.outputs.password }}",
-            "sni": "${HOST}",
+            "sni": "${TUNNEL_HOST}",
             "createdAt": "${CREATED_AT}",
             "expiresAt": "${EXPIRES_AT}"
           }
@@ -196,10 +271,13 @@ jobs:
           {
             "protocol": "vless",
             "id": "${PROXY_ID}",
-            "host": "${HOST}",
-            "port": 443,
+            "host": "${TUNNEL_HOST}",
+            "port": ${TUNNEL_PORT},
             "uuid": "${{ steps.creds.outputs.uuid }}",
-            "sni": "${HOST}",
+            "sni": "${TUNNEL_HOST}",
+            "type": "${TYPE_PARAM}",
+            "path": "${PATH_PARAM}",
+            "security": "${SECURITY_PARAM}",
             "createdAt": "${CREATED_AT}",
             "expiresAt": "${EXPIRES_AT}"
           }
@@ -218,6 +296,7 @@ jobs:
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
             echo "⚠️ Registration failed! Dumping payload for debug:"
             cat /tmp/register.json
+            exit 1
           fi
 
       # --- Step 7: Print subscription URL ---
@@ -227,10 +306,12 @@ jobs:
           echo "═══════════════════════════════════════════════"
           echo "🎉 BPB Action Proxy is running!"
           echo ""
-          echo "🔗 Protocol: ${{ github.event.inputs.protocol || 'hysteria2' }}"
-          echo "🔗 Public URL: $TUNNEL_URL"
+          echo "🔗 Protocol: ${{ github.event.inputs.protocol }}"
+          echo "🔗 Tunnel: ${{ github.event.inputs.tunnel }}"
+          echo "🔗 Public Host: $TUNNEL_HOST"
+          echo "🔗 Public Port: $TUNNEL_PORT"
           echo ""
-          if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ] || [ -z "${{ github.event.inputs.protocol }}" ]; then
+          if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ]; then
             echo "🔐 Password: ${{ steps.creds.outputs.password }}"
           elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
             echo "🔐 UUID: ${{ steps.creds.outputs.uuid }}"
@@ -240,14 +321,7 @@ jobs:
             echo "📋 Subscription URL: $COORDINATOR_URL/sub/all"
             echo "   (Paste this into Hiddify!)"
           else
-            echo "⚠️  No COORDINATOR_URL set - here is your direct connection string:"
-            echo ""
-            HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
-            if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ] || [ -z "${{ github.event.inputs.protocol }}" ]; then
-              echo "hysteria2://${{ steps.creds.outputs.password }}@${HOST}:443?insecure=1&sni=${HOST}#BPB-Action-Direct"
-            elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
-              echo "vless://${{ steps.creds.outputs.uuid }}@${HOST}:443?security=tls&encryption=none&headerType=none&type=ws&path=%2Fws&sni=${HOST}#BPB-Action-Direct"
-            fi
+            echo "⚠️  No COORDINATOR_URL set - check your run params"
           fi
           echo ""
           echo "⏱️  This runner will stay alive for 45 minutes max"
@@ -258,7 +332,6 @@ jobs:
         run: |
           echo "💤 Keeping alive with heartbeat every 5 min..."
           HEARTBEAT_ID="gha-$GITHUB_RUN_ID"
-          HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
           MINUTES_LEFT=45
           for i in $(seq 1 45); do
             # Send heartbeat every 5 minutes
@@ -270,14 +343,47 @@ jobs:
                 -d "{\"id\": \"${HEARTBEAT_ID}\", \"expiresAt\": \"${EXPIRES_AT}\"}" 2>/dev/null || echo "000")
               if [ "$HTTP_CODE" = "404" ]; then
                 echo "⚠️ Proxy record lost, re-registering..."
-                # Rebuild registration JSON using printf (safer than nested heredocs)
+                # Rebuild registration JSON and re-post
                 CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-                if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ] || [ -z "${{ github.event.inputs.protocol }}" ]; then
-                  printf '{"protocol":"hysteria2","id":"%s","host":"%s","port":443,"password":"${{ steps.creds.outputs.password }}","sni":"%s","createdAt":"%s","expiresAt":"%s"}\n' \
-                    "${HEARTBEAT_ID}" "${HOST}" "${HOST}" "${CREATED_AT}" "${EXPIRES_AT}" > /tmp/reregister.json
+                if [ "${{ github.event.inputs.tunnel }}" == "trycloudflare" ]; then
+                  TYPE_PARAM="ws"
+                  PATH_PARAM="/ws"
+                  SECURITY_PARAM="tls"
+                else
+                  TYPE_PARAM="tcp"
+                  PATH_PARAM=""
+                  SECURITY_PARAM="none"
+                fi
+
+                if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ]; then
+                  cat > /tmp/reregister.json <<EOF
+              {
+                "protocol": "hysteria2",
+                "id": "${HEARTBEAT_ID}",
+                "host": "${TUNNEL_HOST}",
+                "port": ${TUNNEL_PORT},
+                "password": "${{ steps.creds.outputs.password }}",
+                "sni": "${TUNNEL_HOST}",
+                "createdAt": "${CREATED_AT}",
+                "expiresAt": "${EXPIRES_AT}"
+              }
+              EOF
                 elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
-                  printf '{"protocol":"vless","id":"%s","host":"%s","port":443,"uuid":"${{ steps.creds.outputs.uuid }}","sni":"%s","createdAt":"%s","expiresAt":"%s"}\n' \
-                    "${HEARTBEAT_ID}" "${HOST}" "${HOST}" "${CREATED_AT}" "${EXPIRES_AT}" > /tmp/reregister.json
+                  cat > /tmp/reregister.json <<EOF
+              {
+                "protocol": "vless",
+                "id": "${HEARTBEAT_ID}",
+                "host": "${TUNNEL_HOST}",
+                "port": ${TUNNEL_PORT},
+                "uuid": "${{ steps.creds.outputs.uuid }}",
+                "sni": "${TUNNEL_HOST}",
+                "type": "${TYPE_PARAM}",
+                "path": "${PATH_PARAM}",
+                "security": "${SECURITY_PARAM}",
+                "createdAt": "${CREATED_AT}",
+                "expiresAt": "${EXPIRES_AT}"
+              }
+              EOF
                 fi
                 curl -s -X POST "${COORDINATOR_URL}/register" \
                   -H "Content-Type: application/json" \

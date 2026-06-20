@@ -260,34 +260,11 @@ else: print('FAILED')
           fi
 
           if [ "${{ github.event.inputs.protocol }}" == "hysteria2" ]; then
-            cat > /tmp/register.json <<EOF
-          {
-            "protocol": "hysteria2",
-            "id": "${PROXY_ID}",
-            "host": "${TUNNEL_HOST}",
-            "port": ${TUNNEL_PORT},
-            "password": "${{ steps.creds.outputs.password }}",
-            "sni": "${TUNNEL_HOST}",
-            "createdAt": "${CREATED_AT}",
-            "expiresAt": "${EXPIRES_AT}"
-          }
-          EOF
+            printf '{\n  "protocol": "hysteria2",\n  "id": "%s",\n  "host": "%s",\n  "port": %s,\n  "password": "${{ steps.creds.outputs.password }}",\n  "sni": "%s",\n  "createdAt": "%s",\n  "expiresAt": "%s"\n}\n' \
+              "${PROXY_ID}" "${TUNNEL_HOST}" "${TUNNEL_PORT}" "${TUNNEL_HOST}" "${CREATED_AT}" "${EXPIRES_AT}" > /tmp/register.json
           elif [ "${{ github.event.inputs.protocol }}" == "vless" ]; then
-            cat > /tmp/register.json <<EOF
-          {
-            "protocol": "vless",
-            "id": "${PROXY_ID}",
-            "host": "${TUNNEL_HOST}",
-            "port": ${TUNNEL_PORT},
-            "uuid": "${{ steps.creds.outputs.uuid }}",
-            "sni": "${TUNNEL_HOST}",
-            "type": "${TYPE_PARAM}",
-            "path": "${PATH_PARAM}",
-            "security": "${SECURITY_PARAM}",
-            "createdAt": "${CREATED_AT}",
-            "expiresAt": "${EXPIRES_AT}"
-          }
-          EOF
+            printf '{\n  "protocol": "vless",\n  "id": "%s",\n  "host": "%s",\n  "port": %s,\n  "uuid": "${{ steps.creds.outputs.uuid }}",\n  "sni": "%s",\n  "type": "%s",\n  "path": "%s",\n  "security": "%s",\n  "createdAt": "%s",\n  "expiresAt": "%s"\n}\n' \
+              "${PROXY_ID}" "${TUNNEL_HOST}" "${TUNNEL_PORT}" "${TUNNEL_HOST}" "${TYPE_PARAM}" "${PATH_PARAM}" "${SECURITY_PARAM}" "${CREATED_AT}" "${EXPIRES_AT}" > /tmp/register.json
           fi
 
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${COORDINATOR_URL}/register" \

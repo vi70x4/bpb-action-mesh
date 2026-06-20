@@ -212,13 +212,13 @@ jobs:
           if [ "$PUNCH_OUTPUT" == "FAILED" ] || [ -z "$PUNCH_OUTPUT" ]; then
             echo "⚠️ STUN Resolution Failed! Checking alternate STUN servers..."
             PUNCH_OUTPUT=$(python3 -c "
-import sys
-sys.path.append('scripts')
-import stun_punch as sp
-mapping = sp.get_stun_mapping(${{ steps.creds.outputs.port }}, 'stun.3cx.com')
-if mapping: print(f'{mapping[0]}:{mapping[1]}')
-else: print('FAILED')
-" 2>/dev/null || echo "FAILED")
+            import sys
+            sys.path.append('scripts')
+            import stun_punch as sp
+            mapping = sp.get_stun_mapping(${{ steps.creds.outputs.port }}, 'stun.3cx.com')
+            if mapping: print(f'{mapping[0]}:{mapping[1]}')
+            else: print('FAILED')
+            " 2>/dev/null || echo "FAILED")
           fi
 
           if [ "$PUNCH_OUTPUT" == "FAILED" ] || [ -z "$PUNCH_OUTPUT" ]; then

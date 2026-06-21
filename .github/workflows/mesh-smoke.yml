@@ -1,0 +1,99 @@
+name: CI Mesh Smoke Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "node/**"
+      - "tools/**"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install node package dependencies
+        run: cd node && npm install
+
+      - name: Install sim tool dependencies
+        run: cd tools/sim && npm install
+
+      - name: Build check (type-check only)
+        id: build-check
+        run: cd node && npx tsc --noEmit
+
+      - name: DHT cluster sim
+        id: dht-sim
+        timeout-minutes: 1
+        run: cd tools/sim && npx tsx dht-cluster-sim.ts --nodes 2
+
+      - name: Create ghost scan fixture
+        run: |
+          printf '%s\n' \
+            '{' \
+            '  "networkId": "bpb-smoke",' \
+            '  "peers": [' \
+            '    { "peerId": "12D3KooWAlive1", "protocol": "vless", "host": "1.2.3.4", "port": 443, "expiresAt": "2099-12-31T23:59:59Z", "tombstoned": false },' \
+            '    { "peerId": "12D3KooWAlive2", "protocol": "hysteria2", "host": "5.6.7.8", "port": 443, "expiresAt": "2099-12-31T23:59:59Z", "tombstoned": false },' \
+            '    { "peerId": "12D3KooWGhost1", "protocol": "vless", "host": "9.10.11.12", "port": 443, "expiresAt": "2020-01-01T00:00:00Z", "tombstoned": false }' \
+            '  ]' \
+            '}' \
+            > /tmp/test-peers.json
+
+      - name: Ghost scan (offline)
+        continue-on-error: true
+        run: |
+          cd tools/monitor && npx tsx ghost-detector.ts --json /tmp/test-peers.json --network bpb-smoke && EXIT_CODE=0 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 1 ]; then
+            echo "::notice::Ghost detector correctly identified ghost peers (exit 1)"
+          else
+            echo "::warning::Ghost detector returned unexpected exit code $EXIT_CODE (expected 1)"
+          fi
+
+      - name: Bootstrap validator (offline)
+        continue-on-error: true
+        run: |
+          cd tools/bootstrap && npx tsx validate-bootstrap.ts --peers /ip4/127.0.0.1/tcp/4001/p2p/12D3KooWFakePeerId && EXIT_CODE=0 || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 2 ]; then
+            echo "::notice::Bootstrap validator correctly reported all unreachable (exit 2)"
+          else
+            echo "::warning::Bootstrap validator returned unexpected exit code $EXIT_CODE (expected 2)"
+          fi
+
+      # ── Swarm Truth Layer: contradiction detection ──
+      - name: Run CI truth pipeline (demo)
+        id: truth-pipeline
+        continue-on-error: true
+        run: cd tools/ci && npx tsx ci-pipeline.ts --ledger /tmp/swarm-ledger.jsonl --run-id smoke-${{ github.run_id }} --report /tmp/swarm-report.json 2>&1; PIPELINE_EXIT=$?; echo "pipeline_exit=$PIPELINE_EXIT" >> $GITHUB_OUTPUT; exit $PIPELINE_EXIT
+
+      - name: Upload swarm report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-truth-report
+          path: /tmp/swarm-report.json
+          retention-days: 7
+
+      - name: Smoke test report
+        if: always()
+        run: |
+          echo "========================================"
+          echo "  CI Mesh Smoke Test Report"
+          echo "========================================"
+          echo ""
+          echo "  Build check (tsc --noEmit):  ${{ steps.build-check.outcome || 'see above' }}"
+          echo "  DHT cluster sim (2 nodes):   ${{ steps.dht-sim.outcome || 'see above' }}"
+          echo "  Ghost scan (offline):        non-blocking (tools-in-progress)"
+          echo "  Bootstrap validator (offline): non-blocking (tools-in-progress)"
+          echo "  Truth pipeline:              ${{ steps.truth-pipeline.outcome || 'see above' }} (exit ${{ steps.truth-pipeline.outputs.pipeline_exit || 'n/a' }})"
+          echo ""
+          echo "========================================"

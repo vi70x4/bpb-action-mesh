@@ -1,0 +1,14 @@
+{
+  "name": "bpb-spec-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "validate": "tsx validate-spec.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.1.0",
+    "tsx": "^3.12.0",
+    "@types/node": "^20.0.0"
+  }
+}

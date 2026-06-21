@@ -1,0 +1,15 @@
+{
+  "name": "bpb-ci-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "pipeline": "tsx ci-pipeline.ts",
+    "pipeline:demo": "tsx ci-pipeline.ts --ledger /tmp/swarm-ledger.jsonl --report /tmp/swarm-report.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.1.0",
+    "tsx": "^3.12.0",
+    "@types/node": "^20.0.0"
+  }
+}

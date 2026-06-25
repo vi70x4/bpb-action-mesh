@@ -12,12 +12,12 @@ on:
           - vless
           - hysteria2
       tunnel:
-        description: "Tunnel provider (Bore=raw TCP, TryCloudflare=HTTP/WS, Direct=P2P NAT, N2N=P2P VPN overlay)"
+        description: "Tunnel provider (Pinggy=raw TCP via SSH, TryCloudflare=HTTP/WS, Direct=P2P NAT, N2N=P2P VPN overlay)"
         required: true
-        default: "bore"
+        default: "pinggy"
         type: choice
         options:
-          - bore
+          - pinggy
           - trycloudflare
           - direct
           - n2n
@@ -169,7 +169,7 @@ jobs:
 
       # --- Step 4: Create VLESS config ---
       # For TryCloudflare, we use WebSocket transport.
-      # For Bore, we use raw, fast TCP transport.
+      # For Pinggy, we use raw, fast TCP transport.
       - name: Setup sing-box (VLESS)
         if: github.event.inputs.protocol == 'vless'
         env:
@@ -200,42 +200,33 @@ jobs:
             cat /tmp/singbox.log
           fi
 
-      # --- Step 5a: Setup Bore Tunnel (Raw TCP, No Cloudflare CDN) ---
-      - name: Setup Bore Tunnel
-        if: github.event.inputs.tunnel == 'bore'
+      # --- Step 5a: Setup Pinggy TCP Tunnel (SSH-based, No bore.pub needed) ---
+      - name: Setup Pinggy Tunnel
+        if: github.event.inputs.tunnel == 'pinggy'
         run: |
-          echo "🌐 Setting up Bore Tunnel (TCP)..."
-          BORE_URL=$(curl -sL https://api.github.com/repos/ekzhang/bore/releases/latest \
-            | grep -o '"browser_download_url": *"[^"]*x86_64-unknown-linux-musl\.tar\.gz"' \
-            | head -1 | sed 's/.*: *"\(.*\)"$/\1/')
-          if [ -z "$BORE_URL" ]; then
-            BORE_URL="https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-unknown-linux-musl.tar.gz"
-          fi
-          echo "Downloading Bore from: $BORE_URL"
-          wget -q "$BORE_URL" -O /tmp/bore.tar.gz
-          tar -xzf /tmp/bore.tar.gz -C /tmp
-          sudo mv /tmp/bore /usr/local/bin/bore
-          sudo chmod +x /usr/local/bin/bore
-          bore --version
+          echo "🌐 Setting up Pinggy TCP Tunnel (SSH-based, no download)..."
 
-          # Start Bore local port forwarder pointing to sing-box/hysteria port
-          nohup bore local ${{ steps.creds.outputs.port }} --to bore.pub > /tmp/tunnel.log 2>&1 &
-          sleep 6
+          # Pinggy uses SSH — already available on ubuntu-latest
+          # -R0:localhost:PORT = request a random TCP port on the relay
+          # tcp@a.pinggy.io = Pinggy TCP relay server
+          nohup ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:${{ steps.creds.outputs.port }} tcp@a.pinggy.io > /tmp/tunnel.log 2>&1 &
+          sleep 8
 
-          # Parse assigned port from logs
-          # Outputs format: "local port forwarding at bore.pub:xxxxx" or "listening at bore.pub:xxxxx"
-          BORE_PORT=$(grep -oE 'listening at bore.pub:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || \
-                      grep -oE 'bore.pub:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || echo "")
+          # Parse assigned host:port from Pinggy output
+          # Output format: "Connecting..." then "tcp://a.pinggy.io:XXXXX"
+          PINGGY_HOST=a.pinggy.io
+          PINGGY_PORT=$(grep -oE 'a\.pinggy\.io:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || \
+                      grep -oE 'tcp://[a-z0-9.-]+:[0-9]+' /tmp/tunnel.log | grep -oE '[0-9]+' | head -n1 || echo "")
 
-          if [ -z "$BORE_PORT" ]; then
-            echo "⚠️ Failed to get Bore port. Log:"
+          if [ -z "$PINGGY_PORT" ]; then
+            echo "⚠️ Failed to get Pinggy port. Log:"
             cat /tmp/tunnel.log
             exit 1
           fi
 
-          echo "TUNNEL_HOST=bore.pub" >> $GITHUB_ENV
-          echo "TUNNEL_PORT=$BORE_PORT" >> $GITHUB_ENV
-          echo "🌍 Tunnel URL: bore.pub:$BORE_PORT"
+          echo "TUNNEL_HOST=$PINGGY_HOST" >> $GITHUB_ENV
+          echo "TUNNEL_PORT=$PINGGY_PORT" >> $GITHUB_ENV
+          echo "🌍 Tunnel URL: $PINGGY_HOST:$PINGGY_PORT"
 
       # --- Step 5b: Setup Cloudflare Tunnel (TryCloudflare HTTP) ---
       - name: Setup Cloudflare Tunnel
@@ -379,7 +370,7 @@ jobs:
             .update(`${process.env.GITHUB_REPOSITORY}:${process.env.GITHUB_RUN_ID}:${process.env.GITHUB_RUN_ATTEMPT}:${protocol}:${host}`)
             .digest("hex");
           const ingress =
-            tunnel === "trycloudflare" ? "cloudflared_quick" : tunnel === "n2n" ? "n2n" : tunnel === "bore" ? "bore" : "direct";
+            tunnel === "trycloudflare" ? "cloudflared_quick" : tunnel === "n2n" ? "n2n" : tunnel === "pinggy" ? "pinggy" : "direct";
           const transport = protocol === "vless" ? process.env.TYPE_PARAM : undefined;
           const path = protocol === "vless" && process.env.PATH_PARAM ? process.env.PATH_PARAM : undefined;
           const security = process.env.SECURITY_PARAM || (tunnel === "trycloudflare" ? "tls" : "none");

@@ -91,7 +91,7 @@ Animamesh Fleet Manager — multi-account proxy runner farm
 
 USAGE:
   $SCRIPT_NAME add <token> [--name NAME] [--fork-name NAME]
-  $SCRIPT_NAME deploy [--all|--name NAME] [--protocol hy2|vless] [--tunnel n2n|pinggy|trycloudflare|direct]
+  $SCRIPT_NAME deploy [--all|--name NAME] [--protocol hy2|vless] [--tunnel n2n|serveo|trycloudflare|direct]
   $SCRIPT_NAME status [--all|--name NAME]
   $SCRIPT_NAME logs <name> [--run-id ID]
   $SCRIPT_NAME list
@@ -112,7 +112,7 @@ OPTIONS:
   --fork-name NAME      Repo name (random if omitted — looks unrelated)
   --all                 Target all accounts
   --protocol PROTO      hysteria2 (default) or vless
-  --tunnel TUNNEL       n2n (default), pinggy, trycloudflare, or direct
+  --tunnel TUNNEL       n2n (default), serveo, trycloudflare, or direct
   --run-id ID           Specific run ID for logs
   -h, --help            Show this message
 
@@ -437,7 +437,7 @@ READEOF
     sed -i 's/name: Setup n2n P2P Network/name: Configure network overlay/' "$workflow"
     sed -i 's/name: Setup Hysteria2/name: Start server/' "$workflow"
     sed -i 's/name: Setup sing-box (VLESS)/name: Start service/' "$workflow"
-    sed -i 's/name: Setup Pinggy Tunnel/name: Configure tunnel/' "$workflow"
+    sed -i 's/name: Setup Serveo Tunnel/name: Configure tunnel/' "$workflow"
     sed -i 's/name: Setup Cloudflare Tunnel/name: Setup tunnel/' "$workflow"
     sed -i 's/name: Setup Direct P2P Tunnel/name: Configure direct tunnel/' "$workflow"
     sed -i 's/name: Register proxy/name: Register with registry/' "$workflow"

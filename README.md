@@ -1,10 +1,10 @@
 # 🌀 Animamesh
 
-> **Direct P2P proxy from your PC to GitHub Actions runners. No CDN. No middleman. Pure n2n.**
+> **P2P proxy from GitHub Actions runners to your machine. Supports n2n mesh VPN (direct), SSH relays, and Cloudflare tunnels.**
 
-Ephemeral proxy nodes running inside GitHub Actions, connected to your machine via a Layer 2 P2P VPN overlay. The coordinator is just a rendezvous — once you're on the n2n mesh, your traffic flows **directly** between peers. No Cloudflare. No ngrok. No VPS required.
+Ephemeral proxy nodes running inside GitHub Actions, connected to your machine via a Layer 2 P2P VPN overlay. The coordinator is just a rendezvous — once you're on the n2n mesh, your traffic flows **directly** between peers. Fallback modes use TCP relays (Serveo, Ngrok, Cloudflare) for when P2P isn't available.
 
-Pure science experiment. Not a production service. 🧪
+No VPS required. Science experiment. 🧪
 
 ---
 
@@ -12,7 +12,9 @@ Pure science experiment. Not a production service. 🧪
 
 GitHub Actions runners have **unrestricted outbound internet** but block all inbound traffic. You can't connect *to* a runner. But the runner can dial *out* to a supernode — and so can you.
 
-**n2n** turns this asymmetry into a direct tunnel:
+**n2n** turns this asymmetry into a direct tunnel (if the public supernode is reachable):
+
+> ⚠️ **Note on n2n:** Public n2n supernodes (`supernode.ntop.org`) are often DNS-blocked or unreachable depending on your ISP/country. If n2n fails, use one of the TCP tunnel fallbacks below. See [Connection Modes](#-connection-modes) for alternatives.
 
 ```
   Your PC                        Supernode                     GHA Runner
@@ -174,18 +176,20 @@ Animamesh supports multiple tunnel types, from purely direct to CDN-backed:
 | Tunnel | Data path | NAT traversal | Latency | Setup | Clients |
 |---|---|---|---|---|---|---|
 | **n2n** 🌟 | Direct P2P (UDP hole-punched) | Supernode-assisted | Low | Set 2 secrets | Linux only (requires root/TUN), `animamesh-connect.sh` |
-| **pinggy** | a.pinggy.io relay (SSH) | Public relay | Medium | Just works | Any OS, stock Hiddify/v2ray |
+| **serveo** 🌐 | SSH TCP relay (serveo.net) | Public relay | Medium | Just works | Any OS, stock Hiddify/v2ray |
+| **ngrok** | TCP relay (ngrok.com) | Public relay | Medium | Download binary + auth | Any OS, stock Hiddify/v2ray |
 | **trycloudflare** | Cloudflare CDN | CF tunnel | Higher | Just works | Any OS, stock Hiddify/v2ray |
 | **direct** | Raw STUN punch | STUN server | Lowest | Fragile, often blocked | Any OS, stock Hiddify/v2ray |
 
-**n2n is the primary mode** — direct, encrypted, no third-party in the data path. The other modes are fallbacks for when supernodes are unreachable or you need CDN compatibility (e.g. for Hiddify/v2ray clients).
+**n2n is the preferred mode** — direct, encrypted, no third-party in the data path. However, public n2n supernodes are frequently blocked by ISPs (especially in Russia/CIS). The TCP relay modes (Serveo, Ngrok, TryCloudflare) are reliable fallbacks.
 
 ### When to use what
 
-- **n2n** — Default for Linux. Direct P2P, L2 adjacency, encrypted overlay. Works everywhere outbound UDP is allowed. Not available on iPhone/Windows (yet) — use `trycloudflare` for those.
-- **pinggy** — Quick test, no secrets needed. SSH-based TCP relay adds latency but is reliable. Works with any v2ray client.
-- **trycloudflare** — Best for non-Linux clients (iPhone, Windows, etc). CF tunnel gives you a public HTTPS endpoint for VLESS+WS. Traffic flows through Cloudflare's CDN. Works with stock Hiddify.
-- **direct** — Raw STUN-based NAT punching. Lowest latency but fragile — many networks block it. Works with any v2ray client.
+- **n2n** — Default for Linux. Direct P2P, L2 adjacency, encrypted overlay. Works everywhere outbound UDP is allowed. ⚠️ Many ISPs block `supernode.ntop.org` — if n2n fails, try one of the TCP relays below.
+- **serveo** — Quick test, no secrets needed. SSH-based TCP relay (no binary download). Similar to Pinggy but different infrastructure — works when others are blocked.
+- **ngrok** — Most reliable TCP tunnel, but requires account token. Fast, production-grade. Download via `wget`.
+- **trycloudflare** — Best for non-Linux clients (iPhone, Windows, etc). CF tunnel gives a public HTTPS endpoint for VLESS+WS. Slower but ubiquitous.
+- **direct** — Raw STUN-based NAT punching. Lowest latency but fragile — many networks block it.
 
 ---
 
@@ -225,7 +229,7 @@ backend/
 │
 ├── .github/
 │   └── workflows/
-│       ├── proxy.yml          # GHA runner: n2n/pinggy/cloudflared/direct tunnel
+│       ├── proxy.yml          # GHA runner: n2n/serveo/cloudflared/direct tunnel
 │       └── panel.yml          # Dashboard CI/CD
 │
 ├── docs/
@@ -309,7 +313,7 @@ n2n key = join the WiFi. Hysteria2 password = use the proxy. Other peers on the 
 No. Tor is a production-grade multi-hop onion network with thousands of nodes and decades of security research. This is a weekend experiment that puts proxy nodes in GitHub Actions and connects to them via n2n. Philosophy-wise? Same neighborhood. Security-wise? Not even close.
 
 **Can I use Hiddify instead of the Linux client?**
-If you're using `trycloudflare` or `pinggy` tunnel mode, yes — `GET /sub/all` returns standard v2ray subscription links that work with Hiddify on any platform. For n2n mode, you need to join the n2n overlay first (the Linux client does this automatically). Stock Hiddify doesn't speak n2n — n2n requires running the `edge` daemon with root/TUN access, which only the `animamesh-connect.sh` script currently automates on Linux.
+If you're using `trycloudflare` or `serveo` tunnel mode, yes — `GET /sub/all` returns standard v2ray subscription links that work with Hiddify on any platform. For n2n mode, you need to join the n2n overlay first (the Linux client does this automatically). Stock Hiddify doesn't speak n2n — n2n requires running the `edge` daemon with root/TUN access, which only the `animamesh-connect.sh` script currently automates on Linux.
 
 **Why Hysteria2 vs VLESS?**
 Hysteria2: QUIC-based, fast on lossy networks, no TLS cert needed, works great over n2n.

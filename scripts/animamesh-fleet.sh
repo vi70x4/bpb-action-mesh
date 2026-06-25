@@ -352,20 +352,20 @@ create_minimal_repo() {
   sed -i 's/name: Output subscription info/name: Print connection info/' "$wf"
   sed -i 's/name: Start DHT Mesh Node/name: Start discovery service/' "$wf"
   sed -i 's/name: Keep runner alive with heartbeat/name: Keep alive/' "$wf"
-  # Strip revealing comments
+  # Strip revealing comments (case-sensitive is fine — we know the exact casing)
   sed -i '/^# ---.*$/d' "$wf" 2>/dev/null || true
-  sed -i '/^#.*BPB.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*animamesh.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*mesh.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*proxy.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*Hiddify.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*VLESS.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*Hysteria2.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*sing-box.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*cloudflared.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*n2n.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*STUN.*$/Id' "$wf" 2>/dev/null || true
-  sed -i '/^#.*WebSocket.*$/Id' "$wf" 2>/dev/null || true
+  sed -i '/^#.*BPB.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*animamesh.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*mesh.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*proxy.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*Hiddify.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*VLESS.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*Hysteria2.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*sing-box.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*cloudflared.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*n2n.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*STUN.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*WebSocket.*$/d' "$wf" 2>/dev/null || true
   log_info "Obfuscated workflow file"
 
   # ── 3. Create innocent README ──
@@ -424,6 +424,10 @@ GITIGNORE
   git init --quiet
   git checkout -b main --quiet 2>/dev/null || git branch -m main
 
+  # Local git config for commits (don't depend on user's global config)
+  git config user.name "CI Bot"
+  git config user.email "bot@ci.local"
+
   # Commit 1: initial project structure (README + configs only)
   git add README.md .gitignore package.json tsconfig.json jest.config.js
   git commit -m "Initial commit" --quiet 2>/dev/null || true
@@ -432,26 +436,30 @@ GITIGNORE
   git add src/ .github/
   git commit -m "Add source code and CI workflow" --quiet 2>/dev/null || true
 
-  # Set remote with embedded token (GH_CONFIG_DIR doesn't proxy git push)
+  # Set remote (no token in URL — use extraHeader for auth)
+  git remote add origin "https://github.com/${gh_user}/${fork_name}.git"
+
+  # Stateless auth via extraHeader instead of embedding token in URL
+  # This avoids leaking the token to .git/config if the script crashes
   if [ -n "$gh_token" ]; then
-    git remote add origin "https://oauth2:${gh_token}@github.com/${gh_user}/${fork_name}.git"
-  else
-    git remote add origin "https://github.com/${gh_user}/${fork_name}.git"
+    local auth_header
+    auth_header=$(echo -n "x-access-token:${gh_token}" | base64 -w0 2>/dev/null || echo -n "x-access-token:${gh_token}" | base64)
+    git config http.extraHeader "AUTHORIZATION: basic ${auth_header}"
   fi
 
-  # Push
-  git push origin main --quiet 2>/dev/null || {
-    log_warn "Push failed, retrying..."
+  # Push (force as fallback — repo was just created, no conflicts expected)
+  git push -u origin main --quiet 2>/dev/null || {
+    log_warn "Push failed, retrying with force..."
     sleep 2
-    git push origin main --quiet 2>/dev/null || {
+    git push -u origin main --force --quiet 2>/dev/null || {
       log_error "Push failed. Check token permissions."
       cd - >/dev/null
       exit 1
     }
   }
 
-  # Clean token from remote URL
-  git remote set-url origin "https://github.com/${gh_user}/${fork_name}.git" 2>/dev/null || true
+  # Clean up extraHeader so it doesn't affect other git operations
+  git config --unset http.extraHeader 2>/dev/null || true
 
   cd - >/dev/null
   log_ok "Minimal repo created, pushed: ${gh_user}/${fork_name}"

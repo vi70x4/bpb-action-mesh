@@ -12,7 +12,7 @@ on:
           - vless
           - hysteria2
       tunnel:
-        description: "Tunnel provider (trycloudflare=HTTP/WS via Cloudflare, direct=STUN P2P, n2n=P2P VPN overlay, serveo=HTTP tunnel via SSH, experimental)"
+        description: "Tunnel provider (trycloudflare=HTTP/WS via Cloudflare, direct=STUN P2P, n2n=P2P VPN overlay)"
         required: true
         default: "trycloudflare"
         type: choice
@@ -20,7 +20,6 @@ on:
           - trycloudflare
           - direct
           - n2n
-          - serveo
 
 env:
   COORDINATOR_URL: ${{ secrets.COORDINATOR_URL }}
@@ -168,7 +167,7 @@ jobs:
           fi
 
       # --- Step 4: Create VLESS config ---
-      # For TryCloudflare and Serveo (HTTP tunnels), use WebSocket transport.
+      # For TryCloudflare (HTTP tunnel), use WebSocket transport.
       # For n2n/direct tunnels, use raw TCP transport.
       - name: Setup sing-box (VLESS)
         if: github.event.inputs.protocol == 'vless'
@@ -200,38 +199,7 @@ jobs:
             cat /tmp/singbox.log
           fi
 
-      # --- Step 5a: Setup Serveo HTTP Tunnel (SSH-based, HTTP only on free tier) ---
-      - name: Setup Serveo Tunnel
-        if: github.event.inputs.tunnel == 'serveo'
-        run: |
-          echo "🌐 Setting up Serveo HTTP Tunnel (SSH-based)..."
-          echo "⚠️ Serveo free tier creates an HTTP tunnel with a warning page."
-          echo "   Works best with VLESS+WebSocket. For raw TCP, use trycloudflare."
-
-          # Serveo free tier only supports HTTP subdomain forwarding
-          # -R 80:localhost:PORT = HTTP tunnel with random subdomain
-          nohup ssh -o StrictHostKeyChecking=no \
-            -o ServerAliveInterval=30 \
-            -R 80:localhost:${{ steps.creds.outputs.port }} \
-            serveo.net > /tmp/tunnel.log 2>&1 &
-          sleep 10
-
-          # Parse assigned subdomain from Serveo output
-          # Format: "Forwarding HTTP traffic from https://<hash>-<ip>.serveousercontent.com"
-          SERVEO_HOST=$(grep -oE 'https://[a-z0-9-]+\.serveousercontent\.com' /tmp/tunnel.log | head -n1 || echo "")
-
-          if [ -n "$SERVEO_HOST" ]; then
-            SERVEO_HOST=$(echo "$SERVEO_HOST" | sed 's|https://||')
-            echo "TUNNEL_HOST=$SERVEO_HOST" >> $GITHUB_ENV
-            echo "TUNNEL_PORT=443" >> $GITHUB_ENV
-            echo "🌍 Tunnel URL: https://$SERVEO_HOST"
-          else
-            echo "⚠️ Failed to get Serveo endpoint. Log:"
-            cat /tmp/tunnel.log
-            exit 1
-          fi
-
-      # --- Step 5b: Setup Cloudflare Tunnel (TryCloudflare HTTP) ---
+      # --- Step 5a: Setup Cloudflare Tunnel (TryCloudflare HTTP) ---
       - name: Setup Cloudflare Tunnel
         if: github.event.inputs.tunnel == 'trycloudflare'
         run: |
@@ -256,7 +224,7 @@ jobs:
             exit 1
           fi
 
-      # --- Step 5c: Setup Direct P2P UDP NAT Hole Punching ---
+      # --- Step 5b: Setup Direct P2P UDP NAT Hole Punching ---
       - name: Setup Direct P2P Tunnel
         if: github.event.inputs.tunnel == 'direct'
         run: |
@@ -324,8 +292,8 @@ jobs:
           CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           # Determine VLESS transport params based on selected tunnel
-          # HTTP tunnels (trycloudflare, serveo) need WebSocket transport
-          if [ "${{ github.event.inputs.tunnel }}" == "trycloudflare" ] || [ "${{ github.event.inputs.tunnel }}" == "serveo" ]; then
+          # HTTP tunnels (trycloudflare) need WebSocket transport
+          if [ "${{ github.event.inputs.tunnel }}" == "trycloudflare" ]; then
             TYPE_PARAM="ws"
             PATH_PARAM="/ws"
             SECURITY_PARAM="tls"
@@ -389,7 +357,7 @@ jobs:
             .update(`${process.env.GITHUB_REPOSITORY}:${process.env.GITHUB_RUN_ID}:${process.env.GITHUB_RUN_ATTEMPT}:${protocol}:${host}`)
             .digest("hex");
           const ingress =
-            tunnel === "trycloudflare" ? "cloudflared_quick" : tunnel === "n2n" ? "n2n" : tunnel === "serveo" ? "serveo" : "direct"
+            tunnel === "trycloudflare" ? "cloudflared_quick" : tunnel === "n2n" ? "n2n" : "direct"
           const transport = protocol === "vless" ? process.env.TYPE_PARAM : undefined;
           const path = protocol === "vless" && process.env.PATH_PARAM ? process.env.PATH_PARAM : undefined;
           const security = process.env.SECURITY_PARAM || (tunnel === "trycloudflare" ? "tls" : "none");

@@ -1,8 +1,8 @@
 # 🌀 Animamesh
 
-> **P2P proxy from GitHub Actions runners to your machine. Supports n2n mesh VPN (direct), SSH relays, and Cloudflare tunnels.**
+> **P2P proxy from GitHub Actions runners to your machine. Supports n2n mesh VPN (direct) and Cloudflare tunnels.**
 
-Ephemeral proxy nodes running inside GitHub Actions, connected to your machine via a Layer 2 P2P VPN overlay. The coordinator is just a rendezvous — once you're on the n2n mesh, your traffic flows **directly** between peers. Fallback modes use TCP relays (Serveo, Ngrok, Cloudflare) for when P2P isn't available.
+Ephemeral proxy nodes running inside GitHub Actions, connected to your machine via Cloudflare tunnels. The coordinator is just a rendezvous — your traffic flows through Cloudflare's edge network.
 
 No VPS required. Science experiment. 🧪
 
@@ -175,20 +175,16 @@ Animamesh supports multiple tunnel types, from purely direct to CDN-backed:
 
 | Tunnel | Data path | NAT traversal | Latency | Setup | Clients |
 |---|---|---|---|---|---|---|
-| **n2n** 🌟 | Direct P2P (UDP hole-punched) | Supernode-assisted | Low | Set 2 secrets | Linux only (requires root/TUN), `animamesh-connect.sh` |
-| **serveo** 🌐 | SSH TCP relay (serveo.net) | Public relay | Medium | Just works | Any OS, stock Hiddify/v2ray |
-| **ngrok** | TCP relay (ngrok.com) | Public relay | Medium | Download binary + auth | Any OS, stock Hiddify/v2ray |
-| **trycloudflare** | Cloudflare CDN | CF tunnel | Higher | Just works | Any OS, stock Hiddify/v2ray |
+| **trycloudflare** 🌟 | Cloudflare CDN | CF tunnel | Medium | Just works | Any OS, stock Hiddify/v2ray |
+| **n2n** | Direct P2P (UDP hole-punched) | Supernode-assisted | Low | Set 2 secrets | Linux only (requires root/TUN), `animamesh-connect.sh` |
 | **direct** | Raw STUN punch | STUN server | Lowest | Fragile, often blocked | Any OS, stock Hiddify/v2ray |
 
-**n2n is the preferred mode** — direct, encrypted, no third-party in the data path. However, public n2n supernodes are frequently blocked by ISPs (especially in Russia/CIS). The TCP relay modes (Serveo, Ngrok, TryCloudflare) are reliable fallbacks.
+**trycloudflare is the default** — works everywhere, no setup, stock Hiddify/v2ray compatible. n2n is available for direct P2P when the supernode is reachable.
 
 ### When to use what
 
-- **n2n** — Default for Linux. Direct P2P, L2 adjacency, encrypted overlay. Works everywhere outbound UDP is allowed. ⚠️ Many ISPs block `supernode.ntop.org` — if n2n fails, try one of the TCP relays below.
-- **serveo** — Quick test, no secrets needed. SSH-based TCP relay (no binary download). Similar to Pinggy but different infrastructure — works when others are blocked.
-- **ngrok** — Most reliable TCP tunnel, but requires account token. Fast, production-grade. Download via `wget`.
-- **trycloudflare** — Best for non-Linux clients (iPhone, Windows, etc). CF tunnel gives a public HTTPS endpoint for VLESS+WS. Slower but ubiquitous.
+- **trycloudflare** 🌟 — Default for all platforms. Works everywhere, no setup, compatible with stock Hiddify/v2ray.
+- **n2n** — Direct P2P when supernode is reachable. Linux only, requires `animamesh-connect.sh`. Lower latency but ISP-dependent.
 - **direct** — Raw STUN-based NAT punching. Lowest latency but fragile — many networks block it.
 
 ---
@@ -229,7 +225,7 @@ backend/
 │
 ├── .github/
 │   └── workflows/
-│       ├── proxy.yml          # GHA runner: n2n/serveo/cloudflared/direct tunnel
+│       ├── proxy.yml          # GHA runner: trycloudflare/n2n/direct tunnel
 │       └── panel.yml          # Dashboard CI/CD
 │
 ├── docs/
@@ -313,7 +309,7 @@ n2n key = join the WiFi. Hysteria2 password = use the proxy. Other peers on the 
 No. Tor is a production-grade multi-hop onion network with thousands of nodes and decades of security research. This is a weekend experiment that puts proxy nodes in GitHub Actions and connects to them via n2n. Philosophy-wise? Same neighborhood. Security-wise? Not even close.
 
 **Can I use Hiddify instead of the Linux client?**
-If you're using `trycloudflare` or `serveo` tunnel mode, yes — `GET /sub/all` returns standard v2ray subscription links that work with Hiddify on any platform. For n2n mode, you need to join the n2n overlay first (the Linux client does this automatically). Stock Hiddify doesn't speak n2n — n2n requires running the `edge` daemon with root/TUN access, which only the `animamesh-connect.sh` script currently automates on Linux.
+If you're using `trycloudflare` tunnel mode, yes — `GET /sub/all` returns standard v2ray subscription links that work with Hiddify on any platform. For n2n mode, you need to join the n2n overlay first (the Linux client does this automatically). Stock Hiddify doesn't speak n2n — n2n requires running the `edge` daemon with root/TUN access, which only the `animamesh-connect.sh` script currently automates on Linux.
 
 **Why Hysteria2 vs VLESS?**
 Hysteria2: QUIC-based, fast on lossy networks, no TLS cert needed, works great over n2n.

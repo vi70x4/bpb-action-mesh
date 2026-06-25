@@ -4,7 +4,7 @@
 #
 # Manages throwaway GitHub accounts as proxy runner farms.
 # Each account gets its own GH_CONFIG_DIR for isolated auth,
-# a fork of the backend repo with a random innocent-looking name,
+# a minimal clean repo with only the runner workflow file,
 # and all required secrets.
 #
 # Usage:
@@ -27,44 +27,46 @@
 #       Remove an account from the fleet
 #
 #   ./animamesh-fleet.sh init-secrets
-#       Prompt to set shared secrets on all forks
+#       Prompt to set shared secrets on all repos
 #
 # Config:
 #   ~/.animamesh/fleet.env       — shared config (COORDINATOR_URL, AUTH_TOKEN, etc.)
 #   ~/.animamesh/accounts/       — per-account directories
 #       <name>/
 #           gh/                  — GH_CONFIG_DIR (gh auth isolated)
-#           repo/                — git clone of the fork
-#           .meta                — account metadata (fork name, real repo name)
+#           repo/                — clean minimal repo (only workflow + README)
+#           .meta                — account metadata (repo name, gh username)
 #
 
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ANIMAMESH_DIR="${HOME}/.animamesh"
 ACCOUNTS_DIR="${ANIMAMESH_DIR}/accounts"
 FLEET_ENV="${ANIMAMESH_DIR}/fleet.env"
 GENERATED_NAMES=(
-  "tiled-cache"
-  "dotenv-config"
-  "stream-utils"
-  "buffer-tools"
-  "route-helpers"
-  "parse-adapters"
-  "array-fns"
-  "hash-maps"
-  "date-fmt"
-  "csv-parse"
-  "ini-loader"
-  "yaml-writer"
-  "path-join"
-  "type-guards"
-  "promise-pool"
-  "retry-queue"
+  "ci-config"
+  "pipeline-tools"
+  "build-workflows"
+  "task-runner"
+  "action-tester"
   "batch-process"
-  "throttle-debounce"
-  "lru-calc"
-  "sorted-array"
+  "retry-queue"
+  "job-scheduler"
+  "workflow-templates"
+  "ci-helpers"
+  "deploy-scripts"
+  "automation-toolkit"
+  "build-cache"
+  "devops-toolkit"
+  "pipeline-orchestrator"
+  "config-manager"
+  "release-automation"
+  "test-workflows"
+  "integration-tests"
+  "pipeline-config"
 )
 
 # ─── Colors ───────────────────────────────────────────────────────────────
@@ -91,7 +93,7 @@ Animamesh Fleet Manager — multi-account proxy runner farm
 
 USAGE:
   $SCRIPT_NAME add <token> [--name NAME] [--fork-name NAME]
-  $SCRIPT_NAME deploy [--all|--name NAME] [--protocol hy2|vless] [--tunnel n2n|pinggy|trycloudflare|direct]
+  $SCRIPT_NAME deploy [--all|--name NAME] [--protocol hy2|vless] [--tunnel n2n|trycloudflare|direct]
   $SCRIPT_NAME status [--all|--name NAME]
   $SCRIPT_NAME logs <name> [--run-id ID]
   $SCRIPT_NAME list
@@ -99,20 +101,20 @@ USAGE:
   $SCRIPT_NAME init-secrets
 
 COMMANDS:
-  add            Register a new throwaway account
+  add            Register a new throwaway account (creates fresh repo, not a fork)
   deploy         Trigger proxy runners (parallel by default)
   status         Check active runs
   logs           Fetch runner logs
   list           List all registered accounts
   remove         Remove an account from the fleet
-  init-secrets   Set shared secrets on all forks
+  init-secrets   Set shared secrets on all repos
 
 OPTIONS:
   --name NAME           Account name (auto-generated if omitted)
-  --fork-name NAME      Repo name (random if omitted — looks unrelated)
+  --fork-name NAME      GitHub repo name (random if omitted — innocent-looking)
   --all                 Target all accounts
   --protocol PROTO      hysteria2 (default) or vless
-  --tunnel TUNNEL       n2n (default), pinggy, trycloudflare, or direct
+  --tunnel TUNNEL       trycloudflare (default), n2n, or direct
   --run-id ID           Specific run ID for logs
   -h, --help            Show this message
 
@@ -259,18 +261,7 @@ cmd_add() {
   # Add delete_repo scope if needed (pipe token to avoid browser prompt)
   echo "$token" | GH_CONFIG_DIR="$account_dir/gh" gh auth refresh -h github.com -s delete_repo --with-token 2>/dev/null || true
 
-  # Check if any existing forks of animamesh/backend exist — delete them
-  log_info "Checking for existing forks..."
-  local existing_forks
-  existing_forks=$(GH_CONFIG_DIR="$account_dir/gh" gh repo list "$gh_user" --limit 50 --json name,isFork,parent --jq '.[] | select(.isFork == true) | select(.parent.owner.login == "animamesh") | .name' 2>/dev/null || true)
-  if [ -n "$existing_forks" ]; then
-    for fork_name in $existing_forks; do
-      log_warn "Deleting existing fork: $gh_user/$fork_name"
-      GH_CONFIG_DIR="$account_dir/gh" gh repo delete "$gh_user/$fork_name" --yes 2>/dev/null || true
-    done
-  fi
-
-  # Pick fork name if not provided
+  # Pick repo name if not provided
   if [ -z "$fork_name" ]; then
     local used_names
     used_names=()
@@ -280,225 +271,503 @@ cmd_add() {
     fork_name=$(pick_name "${used_names[@]}")
   fi
 
-  # Fork the repo
-  log_info "Forking animamesh/backend → ${gh_user}/${fork_name}..."
-  GH_CONFIG_DIR="$account_dir/gh" gh repo fork animamesh/backend --clone=false --fork-name "$fork_name" 2>&1 || {
-    log_error "Fork failed"
+  # Delete existing repo with this name (if any — e.g. from a previous run)
+  log_info "Checking for existing repo: ${gh_user}/${fork_name}..."
+  if GH_CONFIG_DIR="$account_dir/gh" gh repo view "$gh_user/$fork_name" --json name &>/dev/null; then
+    log_warn "Deleting existing repo: $gh_user/$fork_name"
+    GH_CONFIG_DIR="$account_dir/gh" gh repo delete "$gh_user/$fork_name" --yes 2>/dev/null || true
+    # Sleep briefly to let GitHub process the deletion
+    sleep 3
+  fi
+
+  # Create a fresh standalone repo (NOT a fork — no fork network, no connection to animamesh)
+  log_info "Creating fresh repo: ${gh_user}/${fork_name}..."
+  local descriptions=(
+    "Automated build and test pipeline configuration"
+    "Continuous integration workflow definitions"
+    "CI/CD pipeline setup and configuration"
+    "Build automation and deployment workflows"
+    "Development pipeline orchestration"
+    "Automated testing and deployment config"
+    "Infrastructure pipeline definitions"
+    "Release automation and CI tooling"
+  )
+  local desc="${descriptions[$((RANDOM % ${#descriptions[@]}))]}"
+  GH_CONFIG_DIR="$account_dir/gh" gh repo create "$fork_name" --private=false --description "$desc" --homepage="" --add-topic ci,automation 2>&1 || {
+    log_error "Repo creation failed"
     rm -rf "$account_dir"
     exit 1
   }
-  log_ok "Fork created: ${gh_user}/${fork_name}"
-
-  # Set a plausible description
-  local descriptions=(
-    "Tile-based spatial data caching utility"
-    "Lightweight dotenv configuration loader"
-    "Stream processing helpers for Node.js"
-    "Buffer manipulation toolkit"
-    "HTTP route helper utilities"
-    "Data parsing adapter library"
-    "Array functional programming helpers"
-    "Hash map implementation utilities"
-    "Date formatting and parsing library"
-    "CSV parsing utilities"
-  )
-  local desc="${descriptions[$((RANDOM % ${#descriptions[@]}))]}"
-  GH_CONFIG_DIR="$account_dir/gh" gh repo edit "$gh_user/$fork_name" --description "$desc" --add-topic utility,toolkit 2>/dev/null || true
-
-  # Clone the fork
-  log_info "Cloning fork..."
-  GH_CONFIG_DIR="$account_dir/gh" gh repo clone "$gh_user/$fork_name" "$account_dir/repo" 2>&1
-
-  # Set up git remote with token for push capability
-  # The GH_CONFIG_DIR credential helper doesn't work with git push,
-  # so we embed the token in the remote URL locally
-  cd "$account_dir/repo"
-  local gh_token
-  gh_token=$(GH_CONFIG_DIR="$account_dir/gh" gh auth token 2>/dev/null || true)
-  if [ -n "$gh_token" ]; then
-    git remote set-url origin "https://oauth2:${gh_token}@github.com/${gh_user}/${fork_name}.git"
-    log_ok "Git remote configured with token for push"
-  fi
-  cd - >/dev/null
+  log_ok "Repo created: ${gh_user}/${fork_name}"
 
   # Write metadata
   write_meta "$name" "$fork_name" "$gh_user"
 
-  # Obfuscate the fork to hide what it actually does
-  obfuscate_fork "$account_dir"
+  # Build minimal repo locally (no cloning — create from scratch)
+  create_minimal_repo "$account_dir" "$fork_name" "$gh_user"
 
-  # Clean up token from git remote URL after push
-  cd "$account_dir/repo"
-  git remote set-url origin "https://github.com/${gh_user}/${fork_name}.git" 2>/dev/null || true
-  cd - >/dev/null
-
-  log_ok "Account ${BOLD}$name${NC} (${gh_user}) → fork ${BOLD}$fork_name${NC}"
+  log_ok "Account ${BOLD}$name${NC} (${gh_user}) → repo ${BOLD}$fork_name${NC}"
   log_info "Account dir: $account_dir"
   echo ""
   log_info "Next: Set secrets with: $SCRIPT_NAME init-secrets"
 }
 
-# ─── Obfuscation ─────────────────────────────────────────────────────────
+# ─── Minimal Repo Builder ───────────────────────────────────────────────
 
-obfuscate_fork() {
+create_minimal_repo() {
   local account_dir="$1"
+  local fork_name="$2"
+  local gh_user="$3"
   local repo_dir="$account_dir/repo"
-  # Read fork_name from .meta so this function works independently
-  local fork_name
-  fork_name=$(grep "^fork=" "$account_dir/.meta" 2>/dev/null | cut -d= -f2- || echo "repo")
 
-  log_step "Obfuscating fork: ${fork_name}"
+  log_step "Building minimal repo: ${fork_name}"
 
-  if [ ! -d "$repo_dir" ]; then
-    log_warn "No repo directory at $repo_dir, skipping obfuscation"
-    return
+  # Clean slate — remove any previous repo dir
+  rm -rf "$repo_dir"
+  mkdir -p "$repo_dir/.github/workflows"
+
+  # ── 1. Copy workflow from the real backend ──
+  local workflow_src="$BACKEND_DIR/.github/workflows/proxy.yml"
+  local workflow_dst="$repo_dir/.github/workflows/proxy.yml"
+  if [ ! -f "$workflow_src" ]; then
+    log_error "proxy.yml not found at $workflow_src"
+    exit 1
   fi
+  cp "$workflow_src" "$workflow_dst"
+  log_info "Copied workflow from backend"
 
-  cd "$repo_dir"
+  # ── 2. Obfuscate the workflow (strip revealing names and comments) ──
+  local wf="$workflow_dst"
+  sed -i 's/name: BPB Action Proxy/name: CI Pipeline/' "$wf"
+  sed -i 's/description: Launch.*/description: Automated build and test pipeline/' "$wf" 2>/dev/null || true
+  sed -i 's/name: Install Hysteria2/name: Install dependencies/' "$wf"
+  sed -i 's/name: Install sing-box (VLESS)/name: Setup runtime/' "$wf"
+  sed -i 's/name: Generate credentials/name: Configure environment/' "$wf"
+  sed -i 's/name: Setup n2n P2P Network/name: Configure network overlay/' "$wf"
+  sed -i 's/name: Setup Hysteria2/name: Start server/' "$wf"
+  sed -i 's/name: Setup sing-box (VLESS)/name: Start service/' "$wf"
+  sed -i 's/name: Setup Cloudflare Tunnel/name: Setup tunnel/' "$wf"
+  sed -i 's/name: Setup Direct P2P Tunnel/name: Configure direct tunnel/' "$wf"
+  sed -i 's/name: Register proxy/name: Register with registry/' "$wf"
+  sed -i 's/name: Output subscription info/name: Print connection info/' "$wf"
+  sed -i 's/name: Start DHT Mesh Node/name: Start discovery service/' "$wf"
+  sed -i 's/name: Keep runner alive with heartbeat/name: Keep alive/' "$wf"
+  # Strip revealing comments (case-sensitive is fine — we know the exact casing)
+  sed -i '/^# ---.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*BPB.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*animamesh.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*mesh.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*proxy.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*Hiddify.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*VLESS.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*Hysteria2.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*sing-box.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*cloudflared.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*n2n.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*STUN.*$/d' "$wf" 2>/dev/null || true
+  sed -i '/^#.*WebSocket.*$/d' "$wf" 2>/dev/null || true
+  log_info "Obfuscated workflow file"
 
-  # ── 1. Nuke docs (specs reveal the entire architecture) ──
-  if [ -d "docs" ]; then
-    rm -rf docs
-    log_info "Nuked docs/"
-  fi
-
-  # ── 2. Nuke AGENTS.md (reveals mesh structure, secrets handling) ──
-  if [ -f "AGENTS.md" ]; then
-    rm -f AGENTS.md
-    log_info "Nuked AGENTS.md"
-  fi
-  if [ -f "RULES.md" ]; then
-    rm -f RULES.md
-    log_info "Nuked RULES.md"
-  fi
-
-  # ── 3. Nuke revealing scripts from the fork ──
-  # These are local management tools, not needed on the runner
-  if [ -f "scripts/animamesh-connect.sh" ]; then
-    rm -f scripts/animamesh-connect.sh
-    log_info "Nuked scripts/animamesh-connect.sh"
-  fi
-  if [ -f "scripts/animamesh-fleet.sh" ]; then
-    rm -f scripts/animamesh-fleet.sh
-    log_info "Nuked scripts/animamesh-fleet.sh"
-  fi
-
-  # ── 4. Replace README with LLM-generated or static fallback ──
-  log_info "Generating README via LLM..."
-  if gen_readme "$fork_name" > README.md 2>/dev/null; then
+  # ── 3. Create innocent README ──
+  log_info "Generating README..."
+  if gen_readme "$fork_name" > "$repo_dir/README.md" 2>/dev/null; then
     log_ok "README generated via LLM"
   else
     log_warn "LLM unavailable, using static template"
     local generic_desc
-    local generic_adjectives=(
-      "Lightweight utility library for common data processing tasks"
-      "Collection of helper modules for Node.js projects"
-      "Stream processing and buffer manipulation toolkit"
-      "Type-safe utility functions and data structures"
-      "Configuration loader and parser utilities"
-      "Hash map and array functional programming helpers"
+    local generic_desc_options=(
+      "CI pipeline configuration and automation workflows"
+      "Build, test, and deployment pipeline definitions"
+      "Continuous integration setup for automated testing"
+      "Development workflow automation scripts"
+      "Automated build pipeline and release tooling"
     )
-    generic_desc="${generic_adjectives[$((RANDOM % ${#generic_adjectives[@]}))]}"
+    generic_desc="${generic_desc_options[$((RANDOM % ${#generic_desc_options[@]}))]}"
 
-    cat > README.md <<READEOF
+    cat > "$repo_dir/README.md" <<READEOF
 # ${fork_name}
 
 ${generic_desc}
 
-## Installation
-
-\`\`\`bash
-npm install
-\`\`\`
-
 ## Usage
 
-\`\`\`typescript
-import { … } from './src';
-\`\`\`
+This repository contains CI workflow definitions for automated build, test,
+and deployment pipelines. The workflows are triggered via workflow_dispatch
+or on push events.
 
 ## License
 
 MIT
 READEOF
-    log_info "Replaced README.md (static)"
+    log_info "Created README.md (static)"
   fi
 
-  # ── 5. Obfuscate workflow file ──
-  local workflow="$repo_dir/.github/workflows/proxy.yml"
-  if [ -f "$workflow" ]; then
-    # Change the workflow display name from "BPB Action Proxy" to something generic
-    sed -i 's/name: BPB Action Proxy/name: CI Pipeline/' "$workflow"
-    sed -i 's/description: Launch.*/description: Automated build and test pipeline/' "$workflow" 2>/dev/null || true
-    # Obfuscate step names (replace revealing names with generic ones)
-    sed -i 's/name: Install Hysteria2/name: Install dependencies/' "$workflow"
-    sed -i 's/name: Install sing-box (VLESS)/name: Setup runtime/' "$workflow"
-    sed -i 's/name: Generate credentials/name: Configure environment/' "$workflow"
-    sed -i 's/name: Setup n2n P2P Network/name: Configure network overlay/' "$workflow"
-    sed -i 's/name: Setup Hysteria2/name: Start server/' "$workflow"
-    sed -i 's/name: Setup sing-box (VLESS)/name: Start service/' "$workflow"
-    sed -i 's/name: Setup Pinggy Tunnel/name: Configure tunnel/' "$workflow"
-    sed -i 's/name: Setup Cloudflare Tunnel/name: Setup tunnel/' "$workflow"
-    sed -i 's/name: Setup Direct P2P Tunnel/name: Configure direct tunnel/' "$workflow"
-    sed -i 's/name: Register proxy/name: Register with registry/' "$workflow"
-    sed -i 's/name: Output subscription info/name: Print connection info/' "$workflow"
-    sed -i 's/name: Start DHT Mesh Node/name: Start discovery service/' "$workflow"
-    sed -i 's/name: Keep runner alive with heartbeat/name: Keep alive/' "$workflow"
-    # Strip revealing workflow-level comments
-    sed -i '/^# ---.*$/d' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*BPB.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*animamesh.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*mesh.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*proxy.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*Hiddify.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*VLESS.*$/Id' "$workflow" 2>/dev/null || true
-    sed -i '/^#.*Hysteria2.*$/Id' "$workflow" 2>/dev/null || true
-    log_info "Obfuscated workflow file"
+  # ── 4. Create minimal .gitignore ──
+  cat > "$repo_dir/.gitignore" <<'GITIGNORE'
+node_modules/
+.env
+*.log
+dist/
+coverage/
+GITIGNORE
+
+  # ── 5. Generate fake source code (looks like a real TS project) ──
+  gen_fake_source "$repo_dir" "$fork_name"
+
+  # ── 6. Init git, make 2 commits, push ──
+  cd "$repo_dir"
+
+  # Get gh token for git push
+  local gh_token
+  gh_token=$(GH_CONFIG_DIR="$account_dir/gh" gh auth token 2>/dev/null || true)
+
+  git init --quiet
+  git checkout -b main --quiet 2>/dev/null || git branch -m main
+
+  # Local git config for commits (don't depend on user's global config)
+  git config user.name "CI Bot"
+  git config user.email "bot@ci.local"
+
+  # Commit 1: initial project structure (README + configs only)
+  git add README.md .gitignore package.json tsconfig.json jest.config.js
+  git commit -m "Initial commit" --quiet 2>/dev/null || true
+
+  # Commit 2: add source code and CI pipeline (looks like a later addition)
+  git add src/ .github/
+  git commit -m "Add source code and CI workflow" --quiet 2>/dev/null || true
+
+  # Set remote (no token in URL — use extraHeader for auth)
+  git remote add origin "https://github.com/${gh_user}/${fork_name}.git"
+
+  # Stateless auth via extraHeader instead of embedding token in URL
+  # This avoids leaking the token to .git/config if the script crashes
+  if [ -n "$gh_token" ]; then
+    local auth_header
+    auth_header=$(echo -n "x-access-token:${gh_token}" | base64 -w0 2>/dev/null || echo -n "x-access-token:${gh_token}" | base64)
+    git config http.extraHeader "AUTHORIZATION: basic ${auth_header}"
   fi
 
-  # ── 6. Strip revealing comments from source files ──
-  # Only strip comments that reveal architecture (animamesh, bpb, mesh, etc.)
-  # Do NOT modify code, API paths, env vars, or schema
-  local src_dirs="src worker/src node/src"
-  for dir in $src_dirs; do
-    if [ -d "$dir" ]; then
-      find "$dir" -name '*.ts' -o -name '*.py' 2>/dev/null | while IFS= read -r file; do
-        # Strip block comments mentioning revealing terms
-        sed -i '/BPB Action Mesh/Id' "$file" 2>/dev/null || true
-        sed -i '/Animamesh/Id' "$file" 2>/dev/null || true
-        sed -i '/BPB Mesh/Id' "$file" 2>/dev/null || true
-        # Strip license header comments
-        sed -i '/^ \* BPB Action/,/^ \*\//{/^ \*\//!d}' "$file" 2>/dev/null || true
-        # Strip dangerous file-level doc comments (not JSDoc on functions)
-        sed -i '/^# BPB Action/d' "$file" 2>/dev/null || true
-        sed -i '/^# A decentralized mesh/d' "$file" 2>/dev/null || true
-      done
-    fi
-  done
-
-  # ── 7. Rebrand the panel.yml if it exists ──
-  local panel_workflow="$repo_dir/.github/workflows/panel.yml"
-  if [ -f "$panel_workflow" ]; then
-    sed -i 's/name: Deploy Panel/name: Deploy static site/' "$panel_workflow" 2>/dev/null || true
-    sed -i 's/name: Build.*Panel/name: Build assets/' "$panel_workflow" 2>/dev/null || true
-  fi
-
-  # ── 8. Commit and push all changes ──
-  git add -A 2>/dev/null
-  if git diff --cached --quiet 2>/dev/null; then
-    log_info "No changes to commit (already clean)"
-  else
-    git commit -m "chore: housekeeping" --quiet 2>/dev/null || true
-    git push origin main --quiet 2>/dev/null || {
-      log_warn "Push failed (may need to pull first)"
-      # Try pull + push
-      git pull --rebase origin main --quiet 2>/dev/null || true
-      git push origin main --quiet 2>/dev/null || log_warn "Push still failed, continuing..."
+  # Push (force as fallback — repo was just created, no conflicts expected)
+  git push -u origin main --quiet 2>/dev/null || {
+    log_warn "Push failed, retrying with force..."
+    sleep 2
+    git push -u origin main --force --quiet 2>/dev/null || {
+      log_error "Push failed. Check token permissions."
+      cd - >/dev/null
+      exit 1
     }
-    log_ok "Obfuscation committed and pushed"
-  fi
+  }
+
+  # Clean up extraHeader so it doesn't affect other git operations
+  git config --unset http.extraHeader 2>/dev/null || true
 
   cd - >/dev/null
+  log_ok "Minimal repo created, pushed: ${gh_user}/${fork_name}"
+}
+
+# ─── Fake Source Code Generator ────────────────────────────────────────
+
+# Generates deterministic TypeScript utility files so the repo looks like
+# a legitimate software project with CI, not an empty shell repo.
+# Uses the repo name as a seed so output is stable across re-runs.
+# All code is syntactically valid TypeScript — boring utility functions.
+
+gen_fake_source() {
+  local repo_dir="$1"
+  local repo_name="$2"
+
+  # Deterministic seed from repo name
+  local seed
+  seed=$(echo "$repo_name" | md5sum 2>/dev/null | head -c 8 || echo "a1b2c3d4")
+  # Pick a variant (0-15) for function name variation
+  local variant=$(( 0x${seed:0:1} % 4 ))
+
+  mkdir -p "$repo_dir/src/__tests__"
+
+  # ── package.json ──
+  cat > "$repo_dir/package.json" <<'JSON'
+{
+  "name": "REPO_NAME",
+  "version": "0.1.0",
+  "description": "Utility helpers for data processing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --passWithNoTests",
+    "lint": "echo ok",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT"
+}
+JSON
+  sed -i "s/REPO_NAME/$repo_name/" "$repo_dir/package.json"
+
+  # ── tsconfig.json ──
+  cat > "$repo_dir/tsconfig.json" <<'JSON'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/__tests__/**"]
+}
+JSON
+
+  # ── jest.config.js ──
+  cat > "$repo_dir/jest.config.js" <<'JS'
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/__tests__/**/*.test.ts'],
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/__tests__/**'],
+};
+JS
+
+  # ── src/collect.ts — collection utilities ──
+  case $variant in
+    0)
+      cat > "$repo_dir/src/collect.ts" <<'TS'
+export function chunk<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    result.push(items.slice(i, i + size));
+  }
+  return result;
+}
+
+export function uniqueBy<T>(items: T[], key: keyof T): T[] {
+  const seen = new Set<T[keyof T]>();
+  return items.filter((item) => {
+    const k = item[key];
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+export function partition<T>(items: T[], predicate: (item: T) => boolean): [T[], T[]] {
+  const pass: T[] = [];
+  const fail: T[] = [];
+  for (const item of items) {
+    if (predicate(item)) pass.push(item);
+    else fail.push(item);
+  }
+  return [pass, fail];
+}
+TS
+      ;;
+    1)
+      cat > "$repo_dir/src/collect.ts" <<'TS'
+export function groupBy<T>(items: T[], key: keyof T): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = String(item[key]);
+    const group = map.get(k);
+    if (group) group.push(item);
+    else map.set(k, [item]);
+  }
+  return map;
+}
+
+export function flatten<T>(items: T[][]): T[] {
+  const result: T[] = [];
+  for (const arr of items) {
+    for (const item of arr) result.push(item);
+  }
+  return result;
+}
+
+export function sample<T>(items: T[], count: number): T[] {
+  const shuffled = [...items].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, items.length));
+}
+TS
+      ;;
+    2)
+      cat > "$repo_dir/src/collect.ts" <<'TS'
+export function compact<T>(items: (T | null | undefined)[]): T[] {
+  return items.filter((item): item is T => item != null);
+}
+
+export function diff<T>(a: T[], b: T[]): T[] {
+  const setB = new Set(b);
+  return a.filter((item) => !setB.has(item));
+}
+
+export function intersection<T>(a: T[], b: T[]): T[] {
+  const setB = new Set(b);
+  return a.filter((item) => setB.has(item));
+}
+TS
+      ;;
+    3)
+      cat > "$repo_dir/src/collect.ts" <<'TS'
+export function sortBy<T>(items: T[], key: keyof T, order: 'asc' | 'desc' = 'asc'): T[] {
+  return [...items].sort((a, b) => {
+    const va = a[key];
+    const vb = b[key];
+    if (va < vb) return order === 'asc' ? -1 : 1;
+    if (va > vb) return order === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+export function takeWhile<T>(items: T[], predicate: (item: T) => boolean): T[] {
+  const result: T[] = [];
+  for (const item of items) {
+    if (!predicate(item)) break;
+    result.push(item);
+  }
+  return result;
+}
+
+export function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+TS
+      ;;
+  esac
+
+  # ── src/format.ts — string utilities ──
+  case $variant in
+    0)
+      cat > "$repo_dir/src/format.ts" <<'TS'
+export function truncate(text: string, maxLength: number, suffix = '...'): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - suffix.length) + suffix;
+}
+
+export function capitalize(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
+export function kebabCase(text: string): string {
+  return text
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
+}
+TS
+      ;;
+    1)
+      cat > "$repo_dir/src/format.ts" <<'TS'
+export function camelCase(text: string): string {
+  return text
+    .replace(/[-_\s]+(.)/g, (_, c) => c.toUpperCase())
+    .replace(/^[A-Z]/, (c) => c.toLowerCase());
+}
+
+export function padStart(text: string, length: number, char = ' '): string {
+  if (text.length >= length) return text;
+  return char.repeat(length - text.length) + text;
+}
+
+export function words(text: string): string[] {
+  return text.match(/[a-zA-Z]+/g) || [];
+}
+TS
+      ;;
+    2)
+      cat > "$repo_dir/src/format.ts" <<'TS'
+export function pluralize(count: number, singular: string, plural?: string): string {
+  if (count === 1) return singular;
+  return plural || singular + 's';
+}
+
+export function trimLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function ellipsis(text: string, maxLen: number): string {
+  return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '\u2026';
+}
+TS
+      ;;
+    3)
+      cat > "$repo_dir/src/format.ts" <<'TS'
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function mask(text: string, visible = 4, char = '*'): string {
+  if (text.length <= visible) return text;
+  return char.repeat(text.length - visible) + text.slice(-visible);
+}
+
+export function indent(text: string, level = 1, spaces = 2): string {
+  const prefix = ' '.repeat(level * spaces);
+  return text
+    .split('\n')
+    .map((line) => (line ? prefix + line : line))
+    .join('\n');
+}
+TS
+      ;;
+  esac
+
+  # ── src/__tests__/collect.test.ts ──
+  cat > "$repo_dir/src/__tests__/collect.test.ts" <<'TS'
+import { describe, it, expect } from '@jest/globals';
+
+describe('collect', () => {
+  it('should export functions', () => {
+    const mod = require('../collect');
+    expect(Object.keys(mod).length).toBeGreaterThan(0);
+  });
+});
+TS
+
+  # ── src/__tests__/format.test.ts ──
+  cat > "$repo_dir/src/__tests__/format.test.ts" <<'TS'
+import { describe, it, expect } from '@jest/globals';
+
+describe('format', () => {
+  it('should export functions', () => {
+    const mod = require('../format');
+    expect(Object.keys(mod).length).toBeGreaterThan(0);
+  });
+});
+TS
+
+  # ── src/index.ts — barrel exports ──
+  cat > "$repo_dir/src/index.ts" <<'TS'
+export * from './collect';
+export * from './format';
+TS
+
+  log_info "Generated fake source code (variant ${variant})"
 }
 
 # ─── LLM-backed README generation ─────────────────────────────────────
@@ -514,7 +783,7 @@ gen_readme() {
   fi
 
   local prompt
-  prompt="Generate a concise README.md in English for a GitHub repository called '${fork_name}'. It is a small utility library (JavaScript/Node.js). Describe it as a collection of helper functions with a realistic use case. Include a short Installation section (npm install), a Usage section with a minimal code example, and a License section (MIT). Keep it under 30 lines. Do not mention proxy, mesh, VPN, network, tunnel, or any infrastructure concepts. Just a plain utility library."
+  prompt="Generate a concise README.md in English for a GitHub repository called '${fork_name}'. It contains CI/CD workflow definitions for automated build, test, and deployment pipelines using GitHub Actions. Describe it as a collection of reusable pipeline configurations with a realistic use case. Include a Usage section describing how to trigger workflows via workflow_dispatch, and a License section (MIT). Keep it under 25 lines. Do NOT mention proxy, mesh, VPN, network tunnel, Hysteria, VLESS, Cloudflare, or any infrastructure/proxy concepts. Just plain CI pipeline automation."
 
   # Construct JSON payload safely using python3 to avoid shell escaping issues
   local payload

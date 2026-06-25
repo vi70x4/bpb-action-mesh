@@ -129,6 +129,142 @@ Coordinator API to preserve:
 | `/delete/{id}` | DELETE | Bearer | Remove a proxy record |
 | `/health` | GET | None | Service health check |
 
+## Fleet Architecture — Multi-Account Matrix
+
+Animamesh operates across a fleet of throwaway GitHub accounts to distribute proxy runners, avoid rate limits, and reduce the blast radius of any single account being suspended. Each account is self-contained but shares a single coordinator.
+
+### Account Naming & Scope
+
+Accounts follow the pattern `vi70x5` through `vi70x20` (16 accounts total). Each account has:
+
+| Resource | Example | Details |
+|---|---|---|
+| **GitHub account** | `vi70x5` | Throwaway account with `repo` + `workflow` scopes |
+| **Fork repo** | `vi70x5/retry-queue` | Fresh standalone repo (NOT a fork). Only obfuscated workflow + innocent README, zero parent relationship |
+| **Cloudflare account** | Same as GH (e.g. `vi70x5`) | Optional — for permanent tunnel domains (`tun.vi70x5.qzz.io`). 2 domains per account via CF partner |
+| **Coordinator** | Shared — `bpb-action-coordinator.vi70x3.workers.dev` | One Worker for the whole fleet. Multiple GH accounts deploy runners, all register on the same coordinator |
+
+### Storage Layout
+
+```
+~/.animamesh/
+├── gh/token                  # Default GitHub token (current active account)
+├── accounts/
+│   ├── vi70x5/
+│   │   ├── token             # GitHub PAT (raw string)
+│   │   └── gh/               # Per-account gh CLI config dir
+│   │       └── hosts.yml     # gh auth state (oauth_token inside)
+│   ├── vi70x6/
+│   │   ├── token
+│   │   └── gh/hosts.yml
+│   └── ...
+└── forks/
+    ├── vi70x5.meta           # repo_name=retry-queue, gh_user=vi70x5
+    └── vi70x6.meta
+```
+
+### How Fleet Management Works
+
+#### Adding an Account (`animamesh-fleet.sh add <token>`)
+
+1. **Auth capture** — Stores the PAT in `~/.animamesh/accounts/<name>/token` and runs `gh auth login --with-token` into a per-account `GH_CONFIG_DIR`
+2. **Fresh repo creation** — Creates a brand new standalone repo via `gh repo create` (NOT a fork — no fork network, no visible link to animamesh)
+3. **Minimal content** — Only two files go into the repo:
+   - `.github/workflows/proxy.yml` — obfuscated workflow (step names renamed to generic CI terms, all revealing comments stripped)
+   - `README.md` — describes it as a CI pipeline config repo (static template or LLM-generated)
+4. **2-commit push** — Commit 1: "Initial commit" (README + .gitignore). Commit 2: "Add CI workflow" (workflow file). Looks like organic development.
+5. **Meta tracking** — Records `fork_name` and `gh_user` in `~/.animamesh/forks/<name>.meta` for self-contained re-runs
+
+#### Deploying Proxy Runners (`animamesh-fleet.sh deploy`)
+
+1. Reads the repo name and account name from `.meta` files
+2. Sets required secrets on the repo via `gh secret set` with explicit `GH_TOKEN` injection:
+   - `COORDINATOR_URL` — Worker URL (shared across fleet)
+   - `AUTH_TOKEN` — Worker auth token (shared across fleet)
+   - `VLESS_UUID` / `HY2_PASSWORD` — per-account, random, generated
+   - `CLOUDFLARE_API_TOKEN` — optional, for named tunnel mode
+3. Calls `gh workflow run proxy.yml` with `--field protocol=<...> --field tunnel=<...>`, using `--repo <gh_user>/<fork_name>` targeting syntax
+
+#### Fleet Coordination (the Shared Coordinator Model)
+
+```
+                          ┌──────────────────────┐
+                          │  Cloudflare Worker    │
+                          │  vi70x3 account       │
+                          │  (single coordinator) │
+                          │                      │
+                          │  KV: proxies, config │
+                          └──────┬───────────────┘
+                                 │
+          ┌──────────────────────┼──────────────────────┐
+          ▼                      ▼                      ▼
+   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+   │ vi70x5 fork  │      │ vi70x6 fork  │      │ vi70x7 fork  │
+   │ retry-queue  │      │ cloud-sync   │      │ data-pipe    │
+   │ (run 1)      │      │ (run 1)      │      │ (run 1)      │
+   │ (run 2)      │      │ (run 2)      │      │ ...          │
+   └──────┬───────┘      └──────┬───────┘      └──────┬───────┘
+          │ POST /register      │ POST /register      │ POST /register
+          │ heartbeat           │ heartbeat           │ heartbeat
+          ▼                      ▼                      ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │              Coordinator KV (shared pool)                │
+   │  gha-28171: {host, port, protocol, tunnel, expiresAt}   │
+   │  gha-28172: {host, port, protocol, tunnel, expiresAt}   │
+   │  gha-28173: {host, port, protocol, tunnel, expiresAt}   │
+   └─────────────────────────────────────────────────────────┘
+                                      │
+                                      │ GET /sub/all, /proxies
+                                      ▼
+                             ┌──────────────────┐
+                             │  End user client  │
+                             │  (Hiddify, curl)  │
+                             └──────────────────┘
+```
+
+### Repo Obfuscation Strategy
+
+Since throwaway GitHub accounts are used, the repos must look completely unrelated to Animamesh. Each repo is created from scratch with NO fork relationship:
+
+1. **Repo name** — Random descriptive name: `ci-config`, `build-workflows`, `task-runner`, `batch-process`, `retry-queue`, `job-scheduler`, `config-manager`, etc.
+2. **README** — Describes a CI pipeline config repo. LLM-generated if available, else static template. Zero mention of proxy, VPN, mesh, or tunnels.
+3. **Workflow** — Renamed to `CI Pipeline` with generic step names: `Install dependencies`, `Setup runtime`, `Start service`, `Setup tunnel`, `Register with registry`
+4. **Description** — "Automated build and test pipeline"
+5. **Topics** — `ci`, `automation`
+6. **No fork network** — Repo is created via `gh repo create`, NOT `gh repo fork`. No "forked from animamesh/backend" badge.
+7. **Minimal footprint** — Only `.github/workflows/proxy.yml` and `README.md` exist. No source code, no specs, no scripts.
+
+### Cloudflare Account Integration (Planned)
+
+Each GitHub account (`vi70x5`–`vi70x20`) can optionally have a paired Cloudflare account for permanent tunnel domains:
+
+- 2 domains per CF account, provisioned via Cloudflare Partner
+- Named tunnels: `mesh-tun-1` → `tun.<gh_user>.qzz.io`, `mesh-tun-2` → `tun.<gh_user>.dpdns.org`
+- Credentials stored as `CLOUDFLARE_TUNNEL_CREDS` secret (base64-encoded JSON) on each fork
+- `proxy.yml` switches from trycloudflare random subdomain to named tunnel when creds are present
+- Single coordinator Worker (deployed under `vi70x3` account) remains unchanged — Cloudflare accounts are only for tunnel DNS, not for the coordinator
+
+### Authentication Matrix
+
+| Secret | Scope | Where stored | Rotated |
+|---|---|---|---|
+| GitHub PAT | Per-account | `~/.animamesh/accounts/<name>/token` + `gh` config | Per-session |
+| COORDINATOR_URL | Fleet-wide | GH Actions secret on every repo | Rarely |
+| AUTH_TOKEN | Fleet-wide | GH Actions secret on every repo | If leaked |
+| N2N_COMMUNITY | Fleet-wide | GH Actions secret on every repo | Per-deployment |
+| N2N_KEY | Fleet-wide | GH Actions secret on every repo | Per-deployment |
+| CLOUDFLARE_API_TOKEN | Per-account | GH Actions secret on repo | If leaked |
+| CLOUDFLARE_TUNNEL_CREDS | Per-account | GH Actions secret on repo | If leaked |
+| VLESS_UUID / HY2_PASSWORD | Per-run | Generated in workflow, posted to coordinator | Every run |
+
+### Operational Notes
+
+- **One coordinator to rule them all** — All runners, regardless of which GH account they ran under, register on the same Worker. This is safe because the Worker is control-plane only (never in the data path) and the AUTH_TOKEN gates write operations.
+- **Account suspension ≠ fleet loss** — If `vi70x5` is suspended, the other 15 accounts keep running. Only the coordinator stays up (deployed under `vi70x3`, a separate account).
+- **Rate limit distribution** — GitHub API has 5000 req/hr per account. Spreading across 16 accounts gives ~80k req/hr aggregate for workflow dispatches and secret management.
+- **No cross-account contamination** — Each repo has its own secrets. There is no shared KV or cross-account token that could compromise the fleet if a single account is breached.
+- **`GH_CONFIG_DIR` caveat** — The `gh` CLI stores auth per-account in `~/.animamesh/accounts/<name>/gh/`. However, `git push` via `GH_CONFIG_DIR` silently fails on some repos. The fleet script works around this by embedding the token directly in the remote URL: `https://oauth2:${gh_token}@github.com/<user>/<repo>.git`.
+
 ## Credential Rules
 
 - `COORDINATOR_URL`, `AUTH_TOKEN`, `NETWORK_ID` → GitHub Actions secrets only, never in source

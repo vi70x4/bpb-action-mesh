@@ -1,7 +1,5 @@
 <div align=center>
 
-# 🌀 AnimaMesh
-
 <img width="1337" height="1337" alt="kowaii anima-chan" src="https://github.com/user-attachments/assets/67a9e47d-3bd1-4494-b0ba-edf3e856f338" />
 
 **P2P  from GitHub Actions runners to your machine. Supports n2n mesh VPN (direct) and Cloudflare tunnels.**

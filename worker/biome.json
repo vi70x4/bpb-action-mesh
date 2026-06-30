@@ -1,9 +1,10 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+	"root": false,
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"formatter": {
 		"enabled": true,
-		"indentStyle": "tab",
+		"indentStyle": "space",
 		"indentWidth": 2
 	},
 	"javascript": {
@@ -18,13 +19,6 @@
 		}
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/dist/",
-			"!**/node_modules/",
-			"!**/node/dist/",
-			"!**/worker/.wrangler/",
-			"!**/*.min.js"
-		]
+		"includes": ["src/**", "!**/.wrangler/", "!**/node_modules/"]
 	}
 }

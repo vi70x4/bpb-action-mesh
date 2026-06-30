@@ -1,5 +1,6 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+	"root": false,
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"formatter": {
 		"enabled": true,
@@ -14,17 +15,14 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"preset": "recommended"
+			"preset": "recommended",
+			"correctness": {
+				"noUnusedFunctionParameters": "warn",
+				"noUnusedVariables": "error"
+			}
 		}
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/dist/",
-			"!**/node_modules/",
-			"!**/node/dist/",
-			"!**/worker/.wrangler/",
-			"!**/*.min.js"
-		]
+		"includes": ["src/**", "!**/dist/"]
 	}
 }
